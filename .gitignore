@@ -1,0 +1,11 @@
+__pycache__
+*.egg-info
+dist
+.ruff_cache
+.DS_Store
+.pytest_cache
+.ipynb_checkpoints
+notebooks/plots
+notebooks/runs
+.ruff_cache
+wandb
