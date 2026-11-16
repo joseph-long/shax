@@ -15,7 +15,13 @@ NumPy, however, is very well supported. Since `jax.numpy` imitates `numpy`'s API
 
 The portions of the JAX test suite that do not depend on real GPU or TPU hardware, or the existence of particular compiled JAX-specific libraries, can be run against shax by
 
-TODO
+```
+scripts/fetch-jax.sh                    # pinned JAX checkout in vendor/jax (tests only)
+scripts/setup-envs.sh                   # .venv (shax, no jax) and .venv-jaxref (real jax)
+scripts/jaxtest run --subset smoke      # run harness/subsets/smoke.txt against shax
+```
+
+The same tests can be run against real JAX with `--target jax-upstream` (or `--target jax-ported` to check the harness's own port of JAX's test utilities). See `AGENTS.md` for details.
 
 ## Usage
 

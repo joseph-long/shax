@@ -1,0 +1,5 @@
+# Phase 1: small files exercising core machinery.
+tests/tree_util_test.py
+tests/dtypes_test.py
+tests/lax_numpy_einsum_test.py
+tests/fft_test.py

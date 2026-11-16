@@ -1,0 +1,16 @@
+# Test-time deps shared by .venv (shax) and .venv-jaxref (real JAX).
+# Mirrors vendor/jax/build/test-requirements.txt where relevant.
+absl-py
+cloudpickle
+filelock
+hypothesis
+matplotlib
+ml_dtypes
+mpmath>=1.4.1
+numpy
+pillow>=11.3
+portpicker
+pytest
+pytest-xdist
+rich
+scipy

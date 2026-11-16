@@ -9,3 +9,8 @@ notebooks/plots
 notebooks/runs
 .ruff_cache
 wandb
+# shax harness
+vendor/
+.venv/
+.venv-*/
+.jaxtest/

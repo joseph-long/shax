@@ -1,0 +1,8 @@
+# Tests the harness deliberately skips, with reasons. Matched as node-id
+# prefixes relative to vendor/jax (e.g. "tests/api_test.py::APITest::test_x").
+# Whole files that are out of scope belong in harness/subsets/out-of-scope.txt,
+# not here. `targets` defaults to ["shax"].
+#
+# [[skip]]
+# nodeid = "tests/api_test.py::APITest::test_some_xla_detail"
+# reason = "inspects HLO text"

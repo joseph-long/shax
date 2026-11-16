@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "shax"
+version = "0.0.1"
+description = "A NumPy-backed shim for JAX code on platforms without jaxlib"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+scipy = ["scipy"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["shax"]

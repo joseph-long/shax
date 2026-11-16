@@ -1,0 +1,8 @@
+# Phase 2: jax.numpy.
+tests/lax_numpy_operators_test.py
+tests/lax_numpy_reducers_test.py
+tests/lax_numpy_ufuncs_test.py
+tests/lax_numpy_setops_test.py
+tests/lax_numpy_indexing_test.py
+tests/lax_numpy_einsum_test.py
+tests/lax_numpy_test.py

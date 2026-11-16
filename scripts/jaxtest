@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Run subsets of the vendored JAX test suite against shax or real JAX.
+
+  scripts/jaxtest run --subset smoke                 # shax target, compare to baseline
+  scripts/jaxtest run --target jax-ported --subset smoke
+  scripts/jaxtest run tests/fft_test.py -k testFft   # ad hoc paths (relative to vendor/jax)
+  scripts/jaxtest run --subset smoke --update-baseline
+  scripts/jaxtest compare .jaxtest/jax-upstream-smoke.json .jaxtest/jax-ported-smoke.json
+  scripts/jaxtest summary .jaxtest/shax-smoke.json
+
+Anything after `--` is passed to pytest. Reports land in .jaxtest/.
+Baselines (the ratchet) live in harness/baselines/<target>/<subset>.json and
+map node id -> outcome; a test that passed in the baseline and doesn't now is
+a regression (exit status 1).
+"""
+from __future__ import annotations
+
+import argparse
+import collections
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+UPSTREAM = ROOT / "vendor" / "jax"
+HARNESS = ROOT / "harness"
+REPORTS = ROOT / ".jaxtest"
+VENVS = {"shax": ROOT / ".venv", "jax-ported": ROOT / ".venv-jaxref",
+         "jax-upstream": ROOT / ".venv-jaxref"}
+
+
+def read_subset(name: str) -> list[str]:
+  path = HARNESS / "subsets" / f"{name}.txt"
+  if not path.exists():
+    sys.exit(f"no such subset: {path}")
+  out = []
+  for line in path.read_text().splitlines():
+    line = line.split("#", 1)[0].strip()
+    if line:
+      out.append(line)
+  return out
+
+
+def cmd_run(args, pytest_args):
+  if not (UPSTREAM / "tests").is_dir():
+    sys.exit("vendor/jax missing: run scripts/fetch-jax.sh")
+  python = VENVS[args.target] / "bin" / "python"
+  if not python.exists():
+    sys.exit(f"{python} missing: run scripts/setup-envs.sh")
+
+  paths = list(args.paths)
+  if args.subset:
+    paths += read_subset(args.subset)
+  if not paths:
+    sys.exit("give --subset NAME and/or test paths (relative to vendor/jax)")
+  label = args.subset or "adhoc"
+  report = REPORTS / f"{args.target}-{label}.json"
+
+  env = dict(os.environ)
+  env["PYTHONPATH"] = os.pathsep.join(
+      [str(HARNESS)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
+  env["JAX_PLATFORMS"] = "cpu"
+  env.setdefault("JAX_NUM_GENERATED_CASES", "10")
+  env.setdefault("JAX_SKIP_SLOW_TESTS", "0" if args.slow else "1")
+  if args.x64:
+    env["JAX_ENABLE_X64"] = "1"
+
+  cmd = [str(python), "-m", "pytest",
+         "-c", str(HARNESS / "pytest.ini"), "--rootdir", str(UPSTREAM),
+         "--shax-target", args.target, "--shax-report", str(report),
+         "-q", "--tb=line", "-p", "no:randomly"]
+  if args.jobs != 1:
+    cmd += ["-n", str(args.jobs)]
+  cmd += [str(UPSTREAM / p) for p in paths] + pytest_args
+  print("+", " ".join(cmd), file=sys.stderr)
+  # Run from the repo root: running inside vendor/jax would put the JAX source
+  # tree on sys.path and shadow the installed jax (the harness checks this).
+  proc = subprocess.run(cmd, cwd=ROOT, env=env)
+  if not report.exists():
+    sys.exit(f"pytest exited {proc.returncode} without writing {report}")
+
+  data = json.loads(report.read_text())
+  summarize(data)
+  status = 0
+  if args.subset:
+    baseline = HARNESS / "baselines" / args.target / f"{args.subset}.json"
+    if args.update_baseline:
+      outcomes = {k: v["outcome"] for k, v in data["results"].items()}
+      outcomes.update({k: "collection_error" for k in data["collection_errors"]})
+      baseline.parent.mkdir(parents=True, exist_ok=True)
+      baseline.write_text(json.dumps(outcomes, indent=1, sort_keys=True) + "\n")
+      print(f"\nbaseline updated: {baseline.relative_to(ROOT)}")
+    elif baseline.exists():
+      status = diff_baseline(json.loads(baseline.read_text()), data)
+    else:
+      print(f"\n(no baseline at {baseline.relative_to(ROOT)}; "
+            "use --update-baseline to create it)")
+  print(f"\nreport: {report.relative_to(ROOT)}")
+  return status
+
+
+def summarize(data, top=15):
+  per_file = collections.defaultdict(collections.Counter)
+  for nodeid, r in data["results"].items():
+    per_file[nodeid.split("::", 1)[0]][r["outcome"]] += 1
+  for nodeid in data["collection_errors"]:
+    per_file[nodeid.split("::", 1)[0]]["collection_error"] += 1
+  cols = ["passed", "failed", "error", "skipped", "collection_error"]
+  print(f"\n== {data['target']}  env={data['env']}")
+  print(f"{'file':44s}" + "".join(f"{c[:10]:>11s}" for c in cols))
+  total = collections.Counter()
+  for f in sorted(per_file):
+    total.update(per_file[f])
+    print(f"{f:44s}" + "".join(f"{per_file[f][c]:11d}" for c in cols))
+  print(f"{'TOTAL':44s}" + "".join(f"{total[c]:11d}" for c in cols))
+
+  for title, kinds in (("failure/error messages", {"failed", "error"}),
+                       ("skip reasons", {"skipped"})):
+    msgs = collections.Counter(
+        r.get("message", "")[:120] for r in data["results"].values()
+        if r["outcome"] in kinds)
+    if msgs:
+      print(f"\n-- top {title}")
+      for m, n in msgs.most_common(top):
+        print(f"{n:6d}  {m}")
+  if data["collection_errors"]:
+    print("\n-- collection errors")
+    for nodeid, m in data["collection_errors"].items():
+      print(f"  {nodeid}: {m[:150]}")
+
+
+def diff_baseline(baseline: dict, data: dict) -> int:
+  now = {k: v["outcome"] for k, v in data["results"].items()}
+  now.update({k: "collection_error" for k in data["collection_errors"]})
+  regressions = sorted(k for k, v in baseline.items()
+                       if v == "passed" and now.get(k) not in (None, "passed"))
+  missing = sorted(k for k, v in baseline.items()
+                   if v == "passed" and k not in now)
+  improved = sorted(k for k, v in now.items()
+                    if v == "passed" and baseline.get(k) != "passed")
+  print(f"\n-- vs baseline: {len(improved)} newly passing, "
+        f"{len(regressions)} regressions, {len(missing)} previously-passing not run")
+  for k in regressions[:50]:
+    print(f"  REGRESSION {now[k]:8s} {k}")
+  if improved:
+    print("  (run with --update-baseline to ratchet)")
+  return 1 if regressions else 0
+
+
+def cmd_compare(args):
+  a, b = (json.loads(Path(p).read_text()) for p in (args.a, args.b))
+  oa = {k: v["outcome"] for k, v in a["results"].items()}
+  ob = {k: v["outcome"] for k, v in b["results"].items()}
+  diffs = sorted(k for k in oa.keys() | ob.keys() if oa.get(k) != ob.get(k))
+  print(f"{a['target']} vs {b['target']}: {len(diffs)} differing outcomes "
+        f"({len(oa)} vs {len(ob)} tests)")
+  for k in diffs[:200]:
+    print(f"  {oa.get(k, '-'):9s} {ob.get(k, '-'):9s} {k}")
+  ce = sorted(set(a["collection_errors"]) ^ set(b["collection_errors"]))
+  for k in ce:
+    print(f"  collection error in only one: {k}")
+  return 1 if diffs or ce else 0
+
+
+def main():
+  argv = sys.argv[1:]
+  pytest_args = []
+  if "--" in argv:
+    i = argv.index("--")
+    argv, pytest_args = argv[:i], argv[i + 1:]
+  p = argparse.ArgumentParser(description=__doc__,
+                              formatter_class=argparse.RawDescriptionHelpFormatter)
+  sub = p.add_subparsers(dest="cmd", required=True)
+  r = sub.add_parser("run")
+  r.add_argument("paths", nargs="*", help="test paths/node ids relative to vendor/jax")
+  r.add_argument("--target", choices=list(VENVS), default="shax")
+  r.add_argument("--subset", help="name of harness/subsets/<name>.txt")
+  r.add_argument("-j", "--jobs", default="8", help="pytest-xdist workers (1 = no xdist)")
+  r.add_argument("--slow", action="store_true", help="don't set JAX_SKIP_SLOW_TESTS")
+  r.add_argument("--x64", action="store_true", help="set JAX_ENABLE_X64=1")
+  r.add_argument("--update-baseline", action="store_true")
+  c = sub.add_parser("compare")
+  c.add_argument("a")
+  c.add_argument("b")
+  s = sub.add_parser("summary")
+  s.add_argument("report")
+  args = p.parse_args(argv)
+  if args.cmd == "run":
+    args.jobs = int(args.jobs)
+    return cmd_run(args, pytest_args)
+  if args.cmd == "compare":
+    return cmd_compare(args)
+  summarize(json.loads(Path(args.report).read_text()))
+  return 0
+
+
+if __name__ == "__main__":
+  sys.exit(main())
