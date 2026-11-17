@@ -4,11 +4,10 @@ Targets:
   jax-upstream  no aliasing at all (real JAX, upstream test_util).
   jax-ported    real JAX, but `jax._src.test_util` -> `shax_harness.test_util`.
                 Used to validate the port: results must match jax-upstream.
-  shax          `jax` / `jax.<public>`   -> `shax.jax.<public>`
-                `jax._src.test_util`     -> `shax_harness.test_util`
-                `jax._src` / `jax._src.<x>` -> `shax_harness.jax_src.<x>` stand-ins,
-                  except UPSTREAM_PURE names, which load vendor/jax's own
-                  pure-Python source under the stand-in name
+  shax          `jax` / `jax.<anything>` -> `shax.jax.<anything>` (shax mirrors
+                JAX's module layout, including `_src`), except the test-only
+                modules in TEST_ONLY, which are injected as
+                `shax.jax._src.<name>` (shax itself never ships them).
 """
 from __future__ import annotations
 
@@ -20,17 +19,17 @@ import sys
 
 TARGETS = ("shax", "jax-ported", "jax-upstream")
 
-# Pure-Python upstream modules (stdlib/absl/numpy + other jax._src names we
-# provide) that are loaded straight from vendor/jax rather than reimplemented.
-UPSTREAM_PURE = frozenset({
-    "deprecations",
-    "public_test_util",
-    "test_loader",
-    "test_warning_util",
-})
+PORTED_TEST_UTIL = "shax_harness.test_util"
 
-PORTED = {"jax._src.test_util": "shax_harness.test_util"}
-_STANDIN_PREFIX = "shax_harness.jax_src."
+# Test-only `jax._src` modules. Value: a module name to alias to, or None to
+# load vendor/jax's own pure-Python source file for it.
+TEST_ONLY: dict[str, str | None] = {
+    "test_util": PORTED_TEST_UTIL,
+    "test_loader": None,
+    "test_warning_util": None,
+    "lax_reference": None,
+    "internal_test_util": None,  # package; submodules load from vendor too
+}
 
 
 class HarnessImportError(ModuleNotFoundError):
@@ -66,35 +65,38 @@ class AliasFinder(importlib.abc.MetaPathFinder):
   def _alias(self, fullname: str, target: str):
     if importlib.util.find_spec(target) is None:
       raise HarnessImportError(
-          f"shax harness: no stand-in for {fullname!r} (expected {target!r})",
+          f"shax harness: shax does not provide {fullname!r} (expected {target!r})",
           name=fullname)
     return importlib.util.spec_from_loader(fullname, _AliasLoader(target))
 
   def find_spec(self, fullname, path=None, target=None):
     if self.target == "jax-upstream":
       return None
-    if fullname in PORTED:
-      return self._alias(fullname, PORTED[fullname])
-    if self.target != "shax":
-      return None
-    # Upstream pure-Python modules live under their stand-in name, because
-    # `from jax._src import X` resolves X via the parent's real __name__
-    # (shax_harness.jax_src), bypassing the `jax._src.X` alias.
-    if fullname.startswith(_STANDIN_PREFIX):
-      rest = fullname[len(_STANDIN_PREFIX):]
-      if rest in UPSTREAM_PURE:
-        return importlib.util.spec_from_file_location(
-            fullname, self.upstream_src / f"{rest}.py")
-      return None
-    if fullname != "jax" and not fullname.startswith("jax."):
+    if self.target == "jax-ported":
+      if fullname == "jax._src.test_util":
+        return self._alias(fullname, PORTED_TEST_UTIL)
       return None
 
-    if fullname == "jax._src":
-      return self._alias(fullname, "shax_harness.jax_src")
-    if fullname.startswith("jax._src."):
-      rest = fullname[len("jax._src."):]
-      return self._alias(fullname, _STANDIN_PREFIX + rest)
-    return self._alias(fullname, "shax." + fullname)
+    # shax target. `from jax._src import X` looks X up as `shax.jax._src.X`
+    # (the parent's real name), so test-only modules are matched under both.
+    for prefix in ("jax._src.", "shax.jax._src."):
+      if fullname.startswith(prefix):
+        leaf = fullname[len(prefix):]
+        if leaf.split(".")[0] in TEST_ONLY:
+          if prefix == "jax._src.":
+            return self._alias(fullname, "shax." + fullname)
+          if TEST_ONLY.get(leaf) is not None:
+            return self._alias(fullname, TEST_ONLY[leaf])
+          src = self.upstream_src.joinpath(*leaf.split("."))
+          if src.is_dir():
+            return importlib.util.spec_from_file_location(
+                fullname, src / "__init__.py",
+                submodule_search_locations=[str(src)])
+          return importlib.util.spec_from_file_location(
+              fullname, src.with_suffix(".py"))
+    if fullname == "jax" or fullname.startswith("jax."):
+      return self._alias(fullname, "shax." + fullname)
+    return None
 
 
 def install(target: str, upstream_root: Path) -> None:
@@ -130,5 +132,5 @@ def _postflight(target: str, upstream_root: Path) -> None:
           f"({jax_file}); run pytest from the repo root, not vendor/jax")
   if target == "jax-ported":
     from jax._src import test_util  # noqa: PLC0415
-    if test_util.__name__ != PORTED["jax._src.test_util"]:
+    if test_util.__name__ != PORTED_TEST_UTIL:
       raise RuntimeError("shax harness: ported test_util was not picked up")

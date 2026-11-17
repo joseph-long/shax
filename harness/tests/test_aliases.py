@@ -45,7 +45,7 @@ def test_missing_stand_in_is_reported():
       try:
         import jax._src.definitely_not_provided
       except HarnessImportError as e:
-        assert 'no stand-in' in str(e)
+        assert 'shax does not provide' in str(e)
       else:
         raise AssertionError('expected HarnessImportError')
   """)
@@ -57,6 +57,6 @@ def test_import_forms_agree():
       import jax._src.test_warning_util as a
       from jax._src import test_warning_util as b
       import sys
-      assert a is b is sys.modules['shax_harness.jax_src.test_warning_util']
+      assert a is b is sys.modules['shax.jax._src.test_warning_util']
   """)
   assert r.returncode == 0, r.stderr

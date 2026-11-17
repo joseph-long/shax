@@ -7,6 +7,7 @@
   scripts/jaxtest run --subset smoke --update-baseline
   scripts/jaxtest compare .jaxtest/jax-upstream-smoke.json .jaxtest/jax-ported-smoke.json
   scripts/jaxtest summary .jaxtest/shax-smoke.json
+  scripts/jaxtest accept .jaxtest/shax-core.json --subset core   # report -> baseline
 
 Anything after `--` is passed to pytest. Reports land in .jaxtest/.
 Baselines (the ratchet) live in harness/baselines/<target>/<subset>.json and
@@ -55,7 +56,7 @@ def cmd_run(args, pytest_args):
     paths += read_subset(args.subset)
   if not paths:
     sys.exit("give --subset NAME and/or test paths (relative to vendor/jax)")
-  label = args.subset or "adhoc"
+  label = args.label or args.subset or "adhoc"
   report = REPORTS / f"{args.target}-{label}.json"
 
   env = dict(os.environ)
@@ -87,11 +88,7 @@ def cmd_run(args, pytest_args):
   if args.subset:
     baseline = HARNESS / "baselines" / args.target / f"{args.subset}.json"
     if args.update_baseline:
-      outcomes = {k: v["outcome"] for k, v in data["results"].items()}
-      outcomes.update({k: "collection_error" for k in data["collection_errors"]})
-      baseline.parent.mkdir(parents=True, exist_ok=True)
-      baseline.write_text(json.dumps(outcomes, indent=1, sort_keys=True) + "\n")
-      print(f"\nbaseline updated: {baseline.relative_to(ROOT)}")
+      write_baseline(data, baseline)
     elif baseline.exists():
       status = diff_baseline(json.loads(baseline.read_text()), data)
     else:
@@ -149,6 +146,20 @@ def diff_baseline(baseline: dict, data: dict) -> int:
   return 1 if regressions else 0
 
 
+def write_baseline(data: dict, baseline: Path) -> None:
+  outcomes = {k: v["outcome"] for k, v in data["results"].items()}
+  outcomes.update({k: "collection_error" for k in data["collection_errors"]})
+  baseline.parent.mkdir(parents=True, exist_ok=True)
+  baseline.write_text(json.dumps(outcomes, indent=1, sort_keys=True) + "\n")
+  print(f"baseline updated: {baseline.relative_to(ROOT)} ({len(outcomes)} tests)")
+
+
+def cmd_accept(args):
+  data = json.loads(Path(args.report).read_text())
+  write_baseline(data, HARNESS / "baselines" / data["target"] / f"{args.subset}.json")
+  return 0
+
+
 def cmd_compare(args):
   a, b = (json.loads(Path(p).read_text()) for p in (args.a, args.b))
   oa = {k: v["outcome"] for k, v in a["results"].items()}
@@ -156,7 +167,15 @@ def cmd_compare(args):
   diffs = sorted(k for k in oa.keys() | ob.keys() if oa.get(k) != ob.get(k))
   print(f"{a['target']} vs {b['target']}: {len(diffs)} differing outcomes "
         f"({len(oa)} vs {len(ob)} tests)")
-  for k in diffs[:200]:
+  transitions = collections.Counter(
+      (oa.get(k, "-"), ob.get(k, "-"), k.split("::")[0]) for k in diffs)
+  for (x, y, f), n in sorted(transitions.items(), key=lambda t: (-t[1], t[0])):
+    print(f"  {n:6d}  {x:9s} -> {y:9s} {f}")
+  limit = len(diffs) if args.limit == 0 else args.limit
+  if diffs:
+    print("-- differing tests" + (f" (first {limit}; --limit 0 for all)"
+                                  if len(diffs) > limit else ""))
+  for k in diffs[:limit]:
     print(f"  {oa.get(k, '-'):9s} {ob.get(k, '-'):9s} {k}")
   ce = sorted(set(a["collection_errors"]) ^ set(b["collection_errors"]))
   for k in ce:
@@ -181,9 +200,16 @@ def main():
   r.add_argument("--slow", action="store_true", help="don't set JAX_SKIP_SLOW_TESTS")
   r.add_argument("--x64", action="store_true", help="set JAX_ENABLE_X64=1")
   r.add_argument("--update-baseline", action="store_true")
+  r.add_argument("--label", help="report name suffix (default: subset name or "
+                 "'adhoc'); use distinct labels for concurrent runs")
   c = sub.add_parser("compare")
   c.add_argument("a")
   c.add_argument("b")
+  c.add_argument("--limit", type=int, default=200,
+                 help="max differing tests to list (0 = all)")
+  acc = sub.add_parser("accept", help="make a run report the baseline of a subset")
+  acc.add_argument("report")
+  acc.add_argument("--subset", required=True)
   s = sub.add_parser("summary")
   s.add_argument("report")
   args = p.parse_args(argv)
@@ -192,6 +218,8 @@ def main():
     return cmd_run(args, pytest_args)
   if args.cmd == "compare":
     return cmd_compare(args)
+  if args.cmd == "accept":
+    return cmd_accept(args)
   summarize(json.loads(Path(args.report).read_text()))
   return 0
 

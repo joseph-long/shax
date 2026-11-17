@@ -1,11 +1,267 @@
-"""shax's imitation of the public `jax` namespace."""
+# SHAX: ported from jax/__init__.py (jax-v0.12.0.1); Apache-2.0, see shax/jax/_src/LICENSE-JAX.
+# SHAX: hand edits are marked `SHAX:`; regenerate a diff with scripts/port-upstream.py jax/__init__.py --diff
+# Copyright 2018 The JAX Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-# Marker checked by the test harness (and anything else that needs to know).
+# SHAX: marker checked by the test harness (and anything else that needs to
+# know it's running on shax rather than real JAX).
 __shax__ = True
 
-# The JAX release whose public API (and test suite) shax tracks.
-__version__ = "0.12.0.1"
+# Set default C++ logging level before any logging happens.
+import os as _os
+_os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '1')
+del _os
 
+# Import version first, because other submodules may reference it.
+from shax.jax.version import __version__ as __version__
+from shax.jax.version import __version_info__ as __version_info__
 
-def default_backend() -> str:
-  return "cpu"
+# Set Cloud TPU env vars if necessary before transitively loading C++ backend
+from shax.jax._src.cloud_tpu_init import cloud_tpu_init as _cloud_tpu_init
+try:
+  _cloud_tpu_init()
+except Exception as exc:
+  # Defensively swallow any exceptions to avoid making jax unimportable
+  from warnings import warn as _warn
+  _warn(f"cloud_tpu_init failed: {exc!r}\n This a JAX bug; please report "
+        f"an issue at https://github.com/jax-ml/jax/issues")
+  del _warn
+del _cloud_tpu_init
+
+# Force early import, allowing use of `jax.core` after importing `jax`.
+import shax.jax.core as _core
+del _core
+
+# Note: import <name> as <name> is required for names to be exported.
+# See PEP 484 & https://github.com/jax-ml/jax/issues/7570
+
+from shax.jax._src.basearray import Array as Array
+from shax.jax import tree as tree
+from shax.jax import typing as typing
+
+from shax.jax._src.config import (
+    config as config,
+    enable_checks as enable_checks,
+    enable_x64 as enable_x64,
+    debug_key_reuse as debug_key_reuse,
+    check_tracer_leaks as check_tracer_leaks,
+    checking_leaks as checking_leaks,
+    enable_custom_prng as enable_custom_prng,
+    softmax_custom_jvp as softmax_custom_jvp,
+    debug_nans as debug_nans,
+    debug_infs as debug_infs,
+    log_compiles as log_compiles,
+    no_tracing as no_tracing,
+    no_execution as no_execution,
+    explain_cache_misses as explain_cache_misses,
+    default_device as default_device,
+    default_matmul_precision as default_matmul_precision,
+    default_prng_impl as default_prng_impl,
+    numpy_dtype_promotion as numpy_dtype_promotion,
+    numpy_rank_promotion as numpy_rank_promotion,
+    allow_f16_reductions as allow_f16_reductions,
+    jax2tf_associative_scan_reductions as jax2tf_associative_scan_reductions,
+    legacy_prng_key as legacy_prng_key,
+    threefry_partitionable as threefry_partitionable,
+    array_garbage_collection_guard as array_garbage_collection_guard,
+    transfer_guard as transfer_guard,
+    transfer_guard_host_to_device as transfer_guard_host_to_device,
+    transfer_guard_device_to_device as transfer_guard_device_to_device,
+    transfer_guard_device_to_host as transfer_guard_device_to_host,
+    make_user_context as make_user_context,
+    remove_size_one_mesh_axis_from_type as remove_size_one_mesh_axis_from_type,
+    thread_guard as thread_guard,
+    auto_pcast as auto_pcast,
+)
+
+from shax.jax._src.environment_info import print_environment_info as print_environment_info
+
+from shax.jax._src.lib import xla_client as _xc
+Device = _xc.Device
+del _xc
+
+from shax.jax._src.core import (
+    typeof as typeof,
+    ensure_compile_time_eval as ensure_compile_time_eval,
+    ShapeDtypeStruct as ShapeDtypeStruct,
+)
+from shax.jax._src.compiler import CompilerEffortLevel as CompilerEffortLevel
+from shax.jax._src.api import (
+    effects_barrier as effects_barrier,
+    block_until_ready as block_until_ready,
+    clear_caches as clear_caches,
+    copy_to_host_async as copy_to_host_async,
+    device_get as device_get,
+    device_put as device_put,
+    device_put_sharded as _deprecated_device_put_sharded,
+    device_put_replicated as _deprecated_device_put_replicated,
+    disable_jit as disable_jit,
+    eval_shape as eval_shape,
+    fwd_and_bwd as fwd_and_bwd,
+    grad as grad,
+    hessian as hessian,
+    jacobian as jacobian,
+    jacfwd as jacfwd,
+    jacrev as jacrev,
+    jit as jit,
+    Inline as Inline,
+    jvp as jvp,
+    linearize as linearize,
+    linear_transpose as linear_transpose,
+    live_arrays as live_arrays,
+    make_jaxpr as make_jaxpr,
+    named_call as named_call,
+    named_scope as named_scope,
+    value_and_grad as value_and_grad,
+    vjp as vjp,
+    vmap as vmap,
+)
+from shax.jax._src.ad_checkpoint import (
+    checkpoint as checkpoint,
+    checkpoint_policies as checkpoint_policies,
+    remat as remat,
+)
+from shax.jax._src.custom_derivatives import (
+    closure_convert as closure_convert,
+    custom_gradient as custom_gradient,
+    custom_jvp as custom_jvp,
+    custom_vjp as custom_vjp,
+)
+from shax.jax._src.dtypes import float0 as float0
+from shax.jax._src.xla_bridge import (
+    default_backend as default_backend,
+    device_count as device_count,
+    devices as devices,
+    host_count as host_count,
+    host_id as host_id,
+    host_ids as host_ids,
+    local_device_count as local_device_count,
+    local_devices as local_devices,
+    process_count as process_count,
+    process_index as process_index,
+    process_indices as process_indices,
+)
+from shax.jax._src.pmap import pmap as pmap
+from shax.jax._src.callback import pure_callback as pure_callback
+from shax.jax._src.indexing import ds as ds
+from shax.jax._src.sharding_impls import (
+    NamedSharding as NamedSharding,
+    make_mesh as make_mesh,
+    set_mesh as set_mesh,
+    get_mesh as get_mesh
+)
+from shax.jax._src.mesh import (
+    use_abstract_mesh as use_abstract_mesh,
+    get_abstract_mesh as get_abstract_mesh
+)
+from shax.jax._src.partition_spec import P as P
+from shax.jax._src.pjit import reshard as reshard
+
+from shax.jax._src.shard_map import (
+    shard_map as shard_map,
+    smap as smap
+)
+
+from shax.jax.ref import (
+    new_ref as new_ref,
+    empty_ref as empty_ref,
+    free_ref as free_ref,
+    freeze as freeze,
+    Ref as Ref,
+)
+
+# Force import, allowing jax.interpreters.* to be used after import jax.
+from shax.jax.interpreters import ad, batching, mlir, partial_eval, pxla, xla
+del ad, batching, mlir, partial_eval, pxla, xla
+
+from shax.jax._src.array import (
+    make_array_from_single_device_arrays as make_array_from_single_device_arrays,
+    make_array_from_callback as make_array_from_callback,
+    make_array_from_process_local_data as make_array_from_process_local_data,
+)
+
+# These submodules are separate because they are in an import cycle with
+# jax and rely on the names imported above.
+from shax.jax import custom_derivatives as custom_derivatives
+from shax.jax import custom_batching as custom_batching
+from shax.jax import api_util as api_util
+from shax.jax import distributed as distributed
+from shax.jax import debug as debug
+from shax.jax import dlpack as dlpack
+from shax.jax import dtypes as dtypes
+from shax.jax import errors as errors
+from shax.jax import export as export
+from shax.jax import ffi as ffi
+from shax.jax import image as image
+from shax.jax import lax as lax
+from shax.jax import lib as lib  # TODO(phawkins): Deprecate and remove jax.lib.
+from shax.jax import monitoring as monitoring
+from shax.jax import nn as nn
+from shax.jax import numpy as numpy
+from shax.jax import ops as ops
+from shax.jax import profiler as profiler
+from shax.jax import random as random
+from shax.jax import scipy as scipy
+from shax.jax import sharding as sharding
+from shax.jax import stages as stages
+from shax.jax import tree_util as tree_util
+
+# Also circular dependency.
+from shax.jax._src.array import Shard as Shard
+
+from types import SimpleNamespace
+import shax.jax._src.api as jax_api
+import shax.jax._src.core as jax_core
+ad = SimpleNamespace(DontWant=jax_api.DontWant, DidntWant=jax_api.DidntWant,
+                     GradRef=jax_api.GradRef, GradValue=jax_api.GradValue)
+memory = SimpleNamespace(Space=jax_core.MemorySpace)
+del jax_api, jax_core, SimpleNamespace
+
+import shax.jax.experimental.compilation_cache.compilation_cache as _ccache
+del _ccache
+
+_deprecations = {
+    # Removed for v0.10.0
+    "device_put_replicated": (
+        (
+            "jax.device_put_replicated is deprecated; use jax.device_put"
+            " instead. See"
+            " https://docs.jax.dev/en/latest/migrate_pmap.html#drop-in-replacements"
+            " for a drop-in replacement."
+        ),
+        None,
+    ),
+    "device_put_sharded": (
+        (
+            "jax.device_put_sharded is deprecated; use jax.device_put instead."
+            " See https://docs.jax.dev/en/latest/migrate_pmap.html#drop-in-replacements"
+            " for a drop-in replacement."
+        ),
+        None,
+    ),
+}
+
+import typing as _typing
+if _typing.TYPE_CHECKING:
+  device_put_replicated = _deprecated_device_put_replicated
+  device_put_sharded = _deprecated_device_put_sharded
+else:
+  from shax.jax._src.deprecations import deprecation_getattr as _deprecation_getattr
+  __getattr__ = _deprecation_getattr(__name__, _deprecations)
+  del _deprecation_getattr
+del _typing
+
+# trailer
+del _deprecated_device_put_sharded
+del _deprecated_device_put_replicated

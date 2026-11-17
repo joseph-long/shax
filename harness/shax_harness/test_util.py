@@ -661,10 +661,12 @@ def run_on_devices(*enabled_devices, skip_reason=None):
 def device_supports_buffer_donation():
   """A decorator for test methods to run the test only on devices that support
   buffer donation."""
-  if _SHAX:  # SHAX: shax never donates buffers
-    return _device_filter(lambda: False, "shax-unsupported: buffer donation")
+  if _SHAX:  # SHAX: mlir isn't imported at module level under shax
+    from jax._src.interpreters import mlir as mlir_
+  else:
+    mlir_ = mlir
   return _device_filter(
-      lambda: test_device_matches(mlir._platforms_with_donation)
+      lambda: test_device_matches(mlir_._platforms_with_donation)
   )
 
 
