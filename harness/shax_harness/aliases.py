@@ -8,6 +8,7 @@ Targets:
                 JAX's module layout, including `_src`), except the test-only
                 modules in TEST_ONLY, which are injected as
                 `shax.jax._src.<name>` (shax itself never ships them).
+                `opt_einsum` -> shax's vendored `shax._vendor.opt_einsum`.
 """
 from __future__ import annotations
 
@@ -96,6 +97,11 @@ class AliasFinder(importlib.abc.MetaPathFinder):
               fullname, src.with_suffix(".py"))
     if fullname == "jax" or fullname.startswith("jax."):
       return self._alias(fullname, "shax." + fullname)
+    # Test-only modules (lax_reference) and some tests import opt_einsum;
+    # give them shax's vendored copy, which Pyodide has and site-packages
+    # may not.
+    if fullname == "opt_einsum" or fullname.startswith("opt_einsum."):
+      return self._alias(fullname, "shax._vendor." + fullname)
     return None
 
 

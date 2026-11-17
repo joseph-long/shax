@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "A NumPy-backed shim for JAX code on platforms without jaxlib"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["numpy", "ml_dtypes>=0.5.0", "opt_einsum"]
+dependencies = ["numpy", "ml_dtypes>=0.5.0"]
 
 [project.optional-dependencies]
 scipy = ["scipy"]

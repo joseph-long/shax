@@ -34,7 +34,7 @@ from typing import Any, SupportsIndex, TypeAlias, TypeGuard, overload
 import warnings
 
 import numpy as np
-import opt_einsum
+from shax._vendor import opt_einsum
 
 from shax.jax._src import api
 from shax.jax._src import config

@@ -104,6 +104,10 @@ def from_numpy(val, aval) -> Any:
       return val
     buf = from_numpy(np.zeros((0,), np.bool_), core.get_token_aval())
     buf._s_token_buffer = True
+    # No host value: in upstream ArrayImpl, `_npy_value` is a host-copy
+    # cache, and a set cache would let `token._buf._value` bypass the
+    # "Cannot convert a token-shape buffer" error.
+    buf._npy_value = None
     return core.Token(buf)
   if not isinstance(aval, core.ShapedArray):
     raise NotImplementedError(f"shax: can't materialize a value of type {aval}")
@@ -119,7 +123,13 @@ def from_numpy(val, aval) -> Any:
   if arr.shape != aval.shape:
     raise AssertionError(
         f"shax backend produced shape {arr.shape}, expected {aval.str_short()}")
-  sharding = SingleDeviceSharding(xla_bridge.devices()[0])
+  # As XLA places an output by its type: e.g. a device_put to
+  # MemorySpace.Host yields an array in "pinned_host" memory.
+  space = getattr(aval, "memory_space", core.MemorySpace.Device)
+  sharding = SingleDeviceSharding(
+      xla_bridge.devices()[0],
+      memory_kind=(None if space == core.MemorySpace.Device
+                   else core.mem_space_to_kind(space)))
   return ArrayImpl(aval, sharding, [arr], committed=False, _skip_checks=True)
 
 

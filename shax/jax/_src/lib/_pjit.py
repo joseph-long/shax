@@ -33,13 +33,21 @@ class PjitFunctionCache:
     self._strong: dict = {}
     PjitFunctionCache._all.add(self)
 
-  def _executables(self, fun, global_cache_key) -> OrderedDict:
+  def _executables(self, fun, global_cache_key) -> OrderedDict | None:
+    """pjit.cc Lookup: the table shared by jits of `fun` with this key.
+    None for AOT functions (`fun is None`): pjit.cc's DefaultCache() gives
+    each of those a fresh table of its own."""
+    if fun is None:
+      return None
     try:
       per_fun = self._weak.get(fun)
       if per_fun is None:
         per_fun = self._weak[fun] = {}
-    except TypeError:  # not weak-referenceable / hashable
-      per_fun = self._strong.setdefault(id(fun), {})
+    except TypeError:  # not weak-referenceable: hold it strongly (never
+      try:             # by id(), which a later object can reuse)
+        per_fun = self._strong.setdefault(fun, {})
+      except TypeError:  # nor hashable
+        return None
     try:
       table = per_fun.get(global_cache_key)
       if table is None:
@@ -163,10 +171,16 @@ def _arg_signature(x, x64):
   committed), or None for values jaxlib's fast path can't handle."""
   from shax.jax._src import dtypes  # noqa: PLC0415  (import cycle)
   from shax.jax._src.lib._array import ArrayImpl  # noqa: PLC0415
+  from shax.jax._src.lib import _jax  # noqa: PLC0415
   t = type(x)
   if t is ArrayImpl:
     aval = x.aval
     return (aval.dtype, aval.shape, aval.weak_type, x._sharding, x._committed)
+  if t is _jax._typed.get("float") or t is _jax._typed.get("int") or (
+      t is _jax._typed.get("complex")):
+    return (np.dtype(x.dtype), (), True)  # typed_scalar_handler: no squash
+  if t is _jax._typed.get("ndarray"):  # typed_ndarray_handler
+    return (np.dtype(x.dtype), x.shape, bool(x.weak_type))
   if t in _PY_SCALARS:
     if t is bool:
       return (np.dtype(bool), (), True)
@@ -194,6 +208,7 @@ class PjitFunction:
   """
   __slots__ = ("_s_function_name", "_s_fun", "_s_cache_miss", "_s_static_argnums",
                "_s_static_argnames", "_s_global_cache_key", "_s_cache",
+               "_s_registry", "_s_shard_arg_fallback", "_s_own_table",
                "__dict__", "__weakref__")
 
   def __init__(self, function_name, fun, cache_miss, static_argnums,
@@ -207,9 +222,16 @@ class PjitFunction:
     self._s_global_cache_key = global_cache_key
     self._s_cache = cache if cache is not None else _default_cache()
     self._s_registry = pytree_registry
+    self._s_shard_arg_fallback = shard_arg_fallback
+    self._s_own_table = None
 
   def _executables(self):
-    return self._s_cache._executables(self._s_fun, self._s_global_cache_key)
+    if self._s_own_table is not None:
+      return self._s_own_table
+    table = self._s_cache._executables(self._s_fun, self._s_global_cache_key)
+    if table is None:  # pjit.cc DefaultCache(): private to this function
+      table = self._s_own_table = OrderedDict()
+    return table
 
   def __call__(self, *args, **kwargs):
     # pjit.cc: compute the call signature; unsupported arguments (tracers,
@@ -217,6 +239,13 @@ class PjitFunction:
     # miss, cache_miss runs and its fastpath data (if any) is stored; on a
     # hit with fastpath data, the executable runs directly (no Python
     # cache_miss, so no "jit_cpp_cache_miss" event), as jaxlib does.
+    from shax.jax._src import config  # noqa: PLC0415  (import cycle)
+    if config.disable_jit.value:  # pjit.cc: GetDisableJit()
+      if self._s_fun is None:
+        raise ValueError(
+            "Disable jit is not supported in the AOT path since the function "
+            f"is not available for ({self._s_function_name})")
+      return self._s_fun(*args, **kwargs)
     signature, flat = self._call_signature(args, kwargs)
     if signature is None:
       return self._s_cache_miss(*args, **kwargs)[0]
@@ -285,7 +314,36 @@ class PjitFunction:
     self._executables().clear()
 
   def __repr__(self):
-    return f"<PjitFunction of {self._s_fun!r}>"
+    try:  # pjit.cc PjitFunction_tp_repr: never fails
+      return f"<PjitFunction of {self.__wrapped__!r}>"
+    except Exception:  # noqa: BLE001
+      return "<PjitFunction>"
+
+  def __getstate__(self):
+    state = {"version": kPjitFunctionPickleVersion,
+             "function_name": self._s_function_name}
+    if self._s_fun is not None:
+      state["fun"] = self._s_fun
+    state.update(cache_miss=self._s_cache_miss,
+                 static_argnums=list(self._s_static_argnums),
+                 static_argnames=list(self._s_static_argnames),
+                 global_cache_key=self._s_global_cache_key,
+                 pytree_registry=self._s_registry,
+                 shard_arg_fallback=self._s_shard_arg_fallback,
+                 cache=self._s_cache)
+    return state
+
+  def __setstate__(self, state):
+    if state["version"] != kPjitFunctionPickleVersion:
+      raise ValueError(
+          f"Invalid PjitFunction pickle version, got {state['version']}, "
+          f"expected {kPjitFunctionPickleVersion}. Pickling/Unpickling jitted "
+          "functions using different JAX versions is not supported.")
+    PjitFunction.__init__(
+        self, state["function_name"], state.get("fun"), state["cache_miss"],
+        state["static_argnums"], state["static_argnames"],
+        state["global_cache_key"], state["pytree_registry"],
+        state["shard_arg_fallback"], state["cache"])
 
 
 def pjit(function_name, fun, cache_miss, static_argnums, static_argnames,

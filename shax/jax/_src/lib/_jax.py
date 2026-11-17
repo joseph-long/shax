@@ -4,6 +4,7 @@ from __future__ import annotations
 import enum
 import threading
 import types
+import weakref
 from typing import Any, Generic, TypeVar
 
 _T = TypeVar("_T")
@@ -294,10 +295,50 @@ def set_typed_complex_type(t) -> None:
   register_canonicalize_value_handler(t, None)
 
 
+class WeakKeyWeakValueCache:
+  """jaxlib's WeakKeyWeakValueCache (weak_key_weak_value_cache.h): memoizes
+  `fn(x)` by the identity of `x`, holding both `x` and the result weakly.
+
+  jaxlib canonicalizes NumPy arrays through one of these, so the same array
+  canonicalizes to the same TypedNdArray while both are alive. Tracing relies
+  on that: constants are deduplicated by `id()` (`DynamicJaxprTrace.new_const`).
+  """
+
+  def __init__(self, fn):
+    self._fn = fn
+    self._entries: dict = {}  # id(key) -> (weakref(key), weakref(value))
+    self._lock = threading.Lock()
+
+  def _evict(self, key_id, key_ref):
+    with self._lock:
+      entry = self._entries.get(key_id)
+      if entry is not None and entry[0] is key_ref:
+        del self._entries[key_id]
+
+  def __call__(self, x):
+    key_id = id(x)
+    with self._lock:
+      entry = self._entries.get(key_id)
+    if entry is not None and entry[0]() is x:
+      value = entry[1]()
+      if value is not None:
+        return value
+    value = self._fn(x)
+    try:
+      key_ref = weakref.ref(x, lambda r, i=key_id: self._evict(i, r))
+      value_ref = weakref.ref(value)
+    except TypeError:  # not weak-referenceable: don't cache
+      return value
+    with self._lock:
+      self._entries[key_id] = (key_ref, value_ref)
+    return value
+
+
 def set_typed_ndarray_type(t) -> None:
   import numpy as np  # noqa: PLC0415
   _typed["ndarray"] = t
-  register_canonicalize_value_handler(np.ndarray, _canonicalize_numpy_array)
+  register_canonicalize_value_handler(
+      np.ndarray, WeakKeyWeakValueCache(_canonicalize_numpy_array))
   register_canonicalize_value_handler(t, None)
   register_canonicalize_value_handler(np.generic, _canonicalize_numpy_scalar)
 
@@ -359,7 +400,10 @@ class JaxRuntimeError(RuntimeError):
 
 
 def batched_copy_to_host_async(arrays) -> None:
-  pass  # shax arrays already live on the host
+  # shax arrays already live on the host; only jaxlib's checks remain.
+  for x in arrays:
+    if x.is_deleted():
+      raise JaxRuntimeError("INVALID_ARGUMENT: Array has been deleted.")
 
 
 # --- tracebacks: implemented in xla_client.py; jaxlib exposes them on _jax ----
@@ -403,7 +447,23 @@ def pjrt_plugin_initialized(name) -> bool:
   return False
 
 
-mlir = types.SimpleNamespace()  # jaxlib's MLIR helpers; never used by shax
+class _UnsupportedNamespace(types.SimpleNamespace):
+  """A jaxlib submodule shax lacks: every attribute is a function that raises
+  NotImplementedError when called (so importing/referencing works)."""
+
+  def __init__(self, qualname: str):
+    super().__init__()
+    object.__setattr__(self, "_qualname", qualname)
+
+  def __getattr__(self, name):
+    if name.startswith("__"):
+      raise AttributeError(name)
+    return _u.function(f"{self._qualname}.{name}")
+
+
+# jaxlib's MLIR helpers (StableHLO serialization, shape refinement, ...).
+mlir = _UnsupportedNamespace("jaxlib.mlir")
+ifrt_programs = _UnsupportedNamespace("jaxlib.ifrt_programs")
 
 # --- jit dispatch (pure Python; see _pjit.py) ----------------------------------
 from shax.jax._src.lib._pjit import (  # noqa: E402

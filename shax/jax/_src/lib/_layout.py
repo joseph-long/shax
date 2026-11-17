@@ -78,11 +78,12 @@ class PjRtLayout:
     return (PjRtLayout, (self._layout,))
 
 
-def default_pjrt_layout(aval) -> PjRtLayout | None:
-  """XLA:CPU's default layout for values of type `aval` (None for tokens)."""
+def default_pjrt_layout(aval) -> PjRtLayout:
+  """XLA:CPU's default layout for values of type `aval`. Tokens (and
+  `None`, used for effect tokens) get a scalar layout, as in XLA."""
   from shax.jax._src import core, dtypes  # noqa: PLC0415
   if not isinstance(aval, core.ShapedArray):
-    return None
+    return PjRtLayout(Layout((), (), 0))
   if dtypes.issubdtype(aval.dtype, dtypes.extended):
     aval = core.physical_aval(aval)
   dt = np.dtype(aval.dtype)

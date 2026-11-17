@@ -34,6 +34,15 @@ _RULES = [
     # import jax
     (re.compile(r"^(\s*)import jax\s*$", re.M),
      lambda m: f"{m.group(1)}from shax import jax"),
+    # from jaxlib.mlir.x import y: shax's MLIR stubs live where upstream
+    # re-exports jaxlib's (jax._src.lib.mlir)
+    (re.compile(r"^(\s*)from jaxlib\.mlir(\.[\w.]+)? import ", re.M),
+     lambda m: f"{m.group(1)}from shax.jax._src.lib.mlir{m.group(2) or ''} import "),
+    # opt_einsum is vendored (Pyodide doesn't bundle it)
+    (re.compile(r"^(\s*)import opt_einsum\s*$", re.M),
+     lambda m: f"{m.group(1)}from shax._vendor import opt_einsum"),
+    (re.compile(r"^(\s*)from opt_einsum(\.[\w.]+)? import ", re.M),
+     lambda m: f"{m.group(1)}from shax._vendor.opt_einsum{m.group(2) or ''} import "),
 ]
 
 

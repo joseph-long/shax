@@ -270,7 +270,12 @@ def _philox4x32(k0, k1, x0, x1, x2, x3):
 
 @register(prng.iota_2x32_shape_p)
 def _iota_2x32_shape(*, shape):
-  counts = np.arange(math.prod(shape), dtype=np.uint64).reshape(shape)
+  n = math.prod(shape)
+  if n <= 2**32:
+    # The usual case: build the halves directly (a uint64 count array is 8
+    # bytes/element, too much for 1e8-element draws in wasm32's 4 GiB).
+    return [np.zeros(shape, _U32), np.arange(n, dtype=_U32).reshape(shape)]
+  counts = np.arange(n, dtype=np.uint64).reshape(shape)
   return [(counts >> np.uint64(32)).astype(_U32), counts.astype(_U32)]
 
 

@@ -68,9 +68,12 @@ Found via `https://cdn.jsdelivr.net/pyodide/v<ver>/full/pyodide-lock.json`.
   **ml_dtypes 0.5.4** (JAX requires `ml_dtypes>=0.5.0`). So shax uses `ml_dtypes`
   as-is for bfloat16/float8/int4 etc. No shim is needed.
 - **Not bundled**, all pure Python and fetchable by micropip from PyPI:
-  - `opt_einsum`: upstream `jnp.einsum` imports it, so shax currently depends on
-    it. Replacing it with a small `np.einsum_path`-based shim is an open TODO,
-    because offline WASM exports can't fetch from PyPI.
+  - `opt_einsum`: upstream `jnp.einsum` uses it, and offline WASM exports
+    can't fetch from PyPI, so shax **vendors** opt_einsum 3.4.0 (MIT) in
+    `shax/_vendor/opt_einsum`. `port-upstream.py` rewrites `opt_einsum`
+    imports to it. Provenance and the two `# SHAX:` edits (its `jax` backend
+    uses shax.jax) are in `shax/_vendor/__init__.py`. Nothing in shax may
+    import a site-packages `opt_einsum`.
   - `absl-py`, `hypothesis`: only needed to run the test suite in Pyodide.
 - Bundled: `pytest`, `mpmath`, `cloudpickle`.
 - `.venv` mirrors these versions (Python 3.14, numpy/scipy/ml_dtypes pins in
@@ -81,6 +84,7 @@ Found via `https://cdn.jsdelivr.net/pyodide/v<ver>/full/pyodide-lock.json`.
 
 ```
 shax/                        # the shim; `from shax import jax` / `shax.jax.numpy`
+  _vendor/opt_einsum/        #   vendored opt_einsum 3.4.0 (MIT; see _vendor/__init__.py)
   jax/                       #   ported public `jax` package (`__init__` sets `__shax__ = True`)
     _src/                    #   ported `jax._src` modules (same names as upstream)
       LICENSE-JAX            #     Apache-2.0 license of the ported code
@@ -96,14 +100,17 @@ harness/
   pytest.ini                 # mirrors vendor/jax/pyproject.toml pytest options
   requirements-test.txt      # test deps for both venvs
   subsets/<name>.txt         # named selections: paths / node ids relative to vendor/jax
-  skips.toml                 # node-id-prefix skips with reasons, per target
-  baselines/<target>/<subset>.json   # accepted outcome per node id (the ratchet; commit these)
+  skips.toml                 # node-id-prefix (or `exact = true`) skips with reasons, per target
+  baselines/<target>/<subset>[-x64][-slow].json  # accepted outcome per node id (the ratchet; commit these)
 scripts/
   fetch-jax.sh               # clone vendor/jax at the pinned tag
   setup-envs.sh              # create .venv (shax, no jax) and .venv-jaxref (real jax)
   jaxtest                    # runner: run / compare / summary
   port-upstream.py           # copy an upstream module into shax/ with import rewrites
+  fetch-pyodide.py           # pinned Pyodide runtime + wheels -> vendor/pyodide/<ver> (hash-checked)
+  pyodide-pytest.mjs         # Node: run pytest inside Pyodide with the repo mounted
 vendor/jax/                  # upstream checkout (gitignored)
+vendor/pyodide/              # Pyodide runtime + wheels (gitignored)
 .jaxtest/                    # run reports (gitignored)
 ```
 
@@ -117,6 +124,7 @@ scripts/jaxtest run tests/fft_test.py -- -k testFftn   # ad hoc; after `--` goes
 scripts/jaxtest run --subset smoke --update-baseline   # accept current results (ratchet)
 scripts/jaxtest accept .jaxtest/shax-core.json --subset core  # reviewed report -> baseline
 scripts/jaxtest compare .jaxtest/jax-upstream-smoke.json .jaxtest/jax-ported-smoke.json
+python3 -I scripts/fetch-pyodide.py && scripts/jaxtest run --target pyodide --subset smoke -j 4
 PYTHONPATH=harness .venv/bin/python -m pytest -p no:cacheprovider harness/tests
 ```
 
@@ -124,7 +132,27 @@ PYTHONPATH=harness .venv/bin/python -m pytest -p no:cacheprovider harness/tests
 most common failure messages and skip reasons, and regressions vs the baseline
 (exit status 1 if any). Defaults: `JAX_NUM_GENERATED_CASES=10`,
 `JAX_SKIP_SLOW_TESTS=1` (`--slow` to include), `--x64` for `JAX_ENABLE_X64=1`,
-`-j 1` to disable xdist (needed for `pdb`/`-s`).
+`-j 1` to disable xdist (needed for `pdb`/`-s`). `--x64` and `--slow` runs
+generate different cases, so each configuration has its own baseline
+(`core-x64.json`, `core-slow.json`); `accept` picks it from the report's env.
+A skip entry matches node ids by prefix; add `exact = true` when the test's
+name is a prefix of other tests (e.g. `test_composite` vs `test_composite_grad`).
+
+**Pyodide target** (`--target pyodide`): runs shax and the harness inside
+Pyodide 314.0.8 under Node (`node` from the user's micromamba env is on PATH).
+The repo is mounted at its real path, and shax is imported from source.
+WASM has no subprocesses, so there's no xdist: `-j N` shards the test files
+across N Node processes by file size and merges their reports
+(`.jaxtest/pyodide-<label>.shardK.{json,log}`). Its baselines live under
+`harness/baselines/pyodide/`. Differences from the native `shax` target are
+Pyodide bugs to fix (or explain), since the code is the same. Inside Pyodide
+the plugin also applies skips.toml entries with `targets = ["pyodide"]`
+(platform limits: no threads; the wasm32 heap; NumPy on wasm32 having a
+32-bit C `long` and returning garbage `frexp` exponents for inf/nan). Note
+that `sample_product` case lists can differ on wasm32 (`np.long` is int32),
+so a case index like `testFoo35` can name a different case there. Mind
+memory in the backend: a full-size uint64 temporary per op is 8x a 1e8-element
+bool draw, more than wasm32 can allocate.
 
 ## How the harness works (and its gotchas)
 
@@ -212,7 +240,28 @@ most common failure messages and skip reasons, and regressions vs the baseline
     flattened with the *dispatch* registry: PRNG keys appear as their
     physical uint32 arrays, and `in_shardings` is indexed by kept (post-DCE)
     position. Donation, nan checks, `no_execution` and anything unexpected
-    fall back to `cache_miss`.
+    fall back to `cache_miss`. `disable_jit` calls the Python function
+    first, as pjit.cc does. Function-less (AOT `Compiled`) PjitFunctions get
+    a private table (pjit.cc `DefaultCache()`); sharing one ran the wrong
+    executable. Never key a cache on `id()` of an object that can die.
+    `_arg_signature` mirrors py_values.cc, including the `literals.Typed*`
+    types: a value it doesn't recognise silently disables the fast path.
+  - **Lowering-time errors** (`aot._check_lowering_rules`): JAX fails at
+    lowering when a primitive has no MLIR rule for the platform, and some
+    lowering rules raise (e.g. checkify's unfunctionalized `check`). shax
+    reproduces both at "lowering" without running the rules. It checks the
+    top level and nested jit/closed_call bodies only, because
+    cond/scan/while lowering discharges Ref effects first.
+  - **Prefer upstream's expansions to hand-written NumPy:** if a primitive's
+    CPU lowering is `mlir.lower_fun(impl)`, leaving it without a NumPy impl
+    makes the backend evaluate that lax expansion, which is what XLA runs,
+    boundary cases included (`regularized_incomplete_beta_p`: a SciPy impl
+    got NaN where JAX defines 0/1).
+  - Jit outputs are placed by their aval's `memory_space` (e.g. a
+    `device_put` to `MemorySpace.Host` yields `memory_kind="pinned_host"`).
+  - Ref writes inside a jit come back through `ArrayImpl._replace_with`
+    (py_array.cc ReplaceWithAlias). Upstream's write-back swallows
+    AttributeError, so a missing method there drops writes silently.
   - `evaluating_jit()` is true inside `run_jaxpr`. Use it to scope
     eager-only restrictions to truly eager calls; inside a jit, real JAX runs
     compiled code.
@@ -239,25 +288,48 @@ most common failure messages and skip reasons, and regressions vs the baseline
   (`jax.live_arrays()`, lax_control_flow_test::test_cond_memory_leak). Otherwise cached jaxprs that
   hold outer tracers trip the leak checker, and `explain_cache_misses` logs
   nothing (tests in `tests/lib/test_weakref_lru_cache.py`).
+- **`lib/_jax.py` canonicalization:** NumPy arrays canonicalize through a
+  `WeakKeyWeakValueCache` (as in jaxlib), so the same array yields the same
+  TypedNdArray while both live; tracing dedups constants by `id()`.
+- **XLA quirks worth matching:** a bool holding a non-0/1 byte converts to
+  unsigned <=8-bit types by keeping the byte (masked), which `arr.view()`
+  relies on; to anything else it converts to 0/1.
 - **Debugging tip:** set `JAX_TRACEBACK_FILTERING=off`, or JAX hides shax's
   internal frames from tracebacks.
-- **Can't support:** user-defined primitives that only have an MLIR lowering
-  and `impl = dispatch.apply_primitive` (e.g. api_test `tokentest`). shax
-  can't run lowering rules.
+- **Can't support** (skipped in `harness/skips.toml`, with reasons):
+  - anything that reads HLO/StableHLO text or MLIR objects, or uses
+    `jax.export`;
+  - user-defined primitives that only have an MLIR lowering and
+    `impl = dispatch.apply_primitive` (e.g. api_test `tokentest`), since
+    shax can't run lowering rules;
+  - tests that count Python stack frames, because jaxlib's C++ adds none;
+  - tests that run `import jax` in a subprocess.
+  `jax.extend` is ported, but its `mlir`, `pallas`, `xla` and
+  `ifrt_programs` parts raise `NotImplementedError` when used
+  (`_jax._UnsupportedNamespace`).
 
 ## Phases
 
 0. Harness: **done**. Runner, aliasing, and the ported test_util, validated
    against upstream on `smoke`.
-1. `smoke` + `core` subsets: **baselined 2026-11-17**
-   (`harness/baselines/shax/{smoke,core}.json`).
-   - smoke: 1555 passed / 1 failed / 47 skipped.
-   - core (38 files): 19701 passed / 102 failed / 877 skipped / 0 collection
-     errors. Most of what's left needs HLO/StableHLO text (~50 tests, which
-     could go to skips.toml as "needs HLO text"), user primitives with only
-     an MLIR lowering, and a few cache/event-count tests.
+1. `smoke` + `core` subsets: **done 2026-11-17**, 0 failures
+   (`harness/baselines/shax/{smoke,core,core-x64,core-slow}.json`).
+   - core `--slow`: 19786 passed / 0 failed / 894 skipped.
+   - smoke: 1555 passed / 0 failed / 48 skipped.
+   - core (38 files): 19728 passed / 0 failed / 952 skipped / 0 collection
+     errors. Skips with harness reasons: HLO/StableHLO text, MLIR-only
+     user primitives, XLA-only features, stack-frame counting.
+   - core `--x64`: 20363 passed / 1 failed / 976 skipped. The failure,
+     scipy_optimize_test `TestBFGS::test_fixes4594`, is badly conditioned
+     BFGS whose outcome hinges on XLA's dot rounding (JAX's own `H @ g`
+     differs per row for a symmetric H and equal g, i.e. FMA order); shax
+     doesn't emulate Eigen's kernel order.
+   - Pyodide (`harness/baselines/pyodide/{smoke,core}.json`): smoke matches
+     native exactly. Core: 19713 passed / 0 failed / 967 skipped; the 15 tests
+     that pass natively but are skipped there are WASM limits (`targets =
+     ["pyodide"]` in skips.toml).
    Phases 2–4 below were largely absorbed into `core`; the remaining work is
-   the leftover core failures, the out-of-core files, and Pyodide.
+   the out-of-core files.
 2. `numpy` subset; immutable Array + `.at[]` scatter/gather.
 3. Transformations: jvp/linearize/vjp/grad, vmap, control flow, custom_jvp/vjp
    (`api_test`, `lax_autodiff_test`, `lax_control_flow_test`, `custom_api_test`).

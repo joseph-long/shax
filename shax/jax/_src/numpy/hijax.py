@@ -23,8 +23,8 @@ import string
 from typing import Any
 
 import numpy as np
-import opt_einsum
-from opt_einsum.parser import find_output_shape, parse_einsum_input
+from shax._vendor import opt_einsum
+from shax._vendor.opt_einsum.parser import find_output_shape, parse_einsum_input
 
 from shax.jax._src import ad_util
 from shax.jax._src import api

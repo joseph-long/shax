@@ -10,7 +10,8 @@
   scripts/jaxtest accept .jaxtest/shax-core.json --subset core   # report -> baseline
 
 Anything after `--` is passed to pytest. Reports land in .jaxtest/.
-Baselines (the ratchet) live in harness/baselines/<target>/<subset>.json and
+Baselines (the ratchet) live in harness/baselines/<target>/<subset>.json
+(<subset>-x64.json / -slow.json / -x64-slow.json for --x64 / --slow runs) and
 map node id -> outcome; a test that passed in the baseline and doesn't now is
 a regression (exit status 1).
 """
@@ -30,6 +31,8 @@ HARNESS = ROOT / "harness"
 REPORTS = ROOT / ".jaxtest"
 VENVS = {"shax": ROOT / ".venv", "jax-ported": ROOT / ".venv-jaxref",
          "jax-upstream": ROOT / ".venv-jaxref"}
+TARGETS = [*VENVS, "pyodide"]
+PYODIDE_DIR = ROOT / "vendor" / "pyodide" / "314.0.8"  # scripts/fetch-pyodide.py
 
 
 def read_subset(name: str) -> list[str]:
@@ -44,11 +47,63 @@ def read_subset(name: str) -> list[str]:
   return out
 
 
+def _shard(paths: list[str], n: int) -> list[list[str]]:
+  """Split test paths into <= n groups of similar total file size."""
+  def size(p):
+    f = UPSTREAM / p.split("::", 1)[0]
+    return f.stat().st_size if f.is_file() else 0
+  shards: list[list[str]] = [[] for _ in range(min(n, len(paths)))]
+  loads = [0] * len(shards)
+  for p in sorted(paths, key=size, reverse=True):
+    i = loads.index(min(loads))
+    shards[i].append(p)
+    loads[i] += size(p) or 1
+  return [s for s in shards if s]
+
+
+def _run_pyodide(args, paths, pytest_args, env, report):
+  """Run pytest in Pyodide under Node: one process per shard (no xdist in
+  WASM), then merge the shard reports into `report`."""
+  if not (PYODIDE_DIR / "shax-manifest.json").exists():
+    sys.exit(f"{PYODIDE_DIR} missing: run python3 -I scripts/fetch-pyodide.py")
+  shards = _shard(paths, max(1, args.jobs))
+  procs, shard_reports = [], []
+  for i, group in enumerate(shards):
+    shard_report = report.with_suffix(f".shard{i}.json")
+    shard_report.unlink(missing_ok=True)
+    shard_reports.append(shard_report)
+    cmd = ["node", str(ROOT / "scripts" / "pyodide-pytest.mjs"),
+           str(PYODIDE_DIR), str(ROOT), "--",
+           "-c", str(HARNESS / "pytest.ini"), "--rootdir", str(UPSTREAM),
+           "--shax-target", "shax", "--shax-report", str(shard_report),
+           "-q", "--tb=line", "-p", "no:randomly", "-p", "no:xdist",
+           "-p", "no:cacheprovider",
+           *[str(UPSTREAM / p) for p in group], *pytest_args]
+    print("+", " ".join(cmd), file=sys.stderr)
+    log = open(report.with_suffix(f".shard{i}.log"), "w")
+    procs.append((subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=log,
+                                   stderr=subprocess.STDOUT), log))
+  for proc, log in procs:
+    proc.wait()
+    log.close()
+  merged = {"target": "pyodide", "env": None, "collection_errors": {},
+            "results": {}}
+  for i, r in enumerate(shard_reports):
+    if not r.exists():
+      sys.exit(f"pyodide shard {i} wrote no report; see "
+               f"{r.with_suffix('.log').relative_to(ROOT)}")
+    d = json.loads(r.read_text())
+    merged["env"] = d["env"]
+    merged["collection_errors"].update(d["collection_errors"])
+    merged["results"].update(d["results"])
+  report.write_text(json.dumps(merged, indent=1, sort_keys=True) + "\n")
+
+
 def cmd_run(args, pytest_args):
   if not (UPSTREAM / "tests").is_dir():
     sys.exit("vendor/jax missing: run scripts/fetch-jax.sh")
-  python = VENVS[args.target] / "bin" / "python"
-  if not python.exists():
+  python = VENVS.get(args.target, VENVS["shax"]) / "bin" / "python"
+  if args.target != "pyodide" and not python.exists():
     sys.exit(f"{python} missing: run scripts/setup-envs.sh")
 
   paths = list(args.paths)
@@ -68,6 +123,10 @@ def cmd_run(args, pytest_args):
   if args.x64:
     env["JAX_ENABLE_X64"] = "1"
 
+  if args.target == "pyodide":
+    _run_pyodide(args, paths, pytest_args, env, report)
+    return _finish_run(args, report)
+
   cmd = [str(python), "-m", "pytest",
          "-c", str(HARNESS / "pytest.ini"), "--rootdir", str(UPSTREAM),
          "--shax-target", args.target, "--shax-report", str(report),
@@ -81,12 +140,27 @@ def cmd_run(args, pytest_args):
   proc = subprocess.run(cmd, cwd=ROOT, env=env)
   if not report.exists():
     sys.exit(f"pytest exited {proc.returncode} without writing {report}")
+  return _finish_run(args, report)
 
+
+def baseline_path(data: dict, subset: str) -> Path:
+  """harness/baselines/<target>/<subset>[-x64][-slow].json: x64 and slow runs
+  generate different test cases, so each configuration has its own ratchet."""
+  env = data.get("env", {})
+  name = subset
+  if env.get("JAX_ENABLE_X64") == "1":
+    name += "-x64"
+  if env.get("JAX_SKIP_SLOW_TESTS") != "1":
+    name += "-slow"
+  return HARNESS / "baselines" / data["target"] / f"{name}.json"
+
+
+def _finish_run(args, report):
   data = json.loads(report.read_text())
   summarize(data)
   status = 0
   if args.subset:
-    baseline = HARNESS / "baselines" / args.target / f"{args.subset}.json"
+    baseline = baseline_path(data, args.subset)
     if args.update_baseline:
       write_baseline(data, baseline)
     elif baseline.exists():
@@ -156,7 +230,7 @@ def write_baseline(data: dict, baseline: Path) -> None:
 
 def cmd_accept(args):
   data = json.loads(Path(args.report).read_text())
-  write_baseline(data, HARNESS / "baselines" / data["target"] / f"{args.subset}.json")
+  write_baseline(data, baseline_path(data, args.subset))
   return 0
 
 
@@ -194,7 +268,9 @@ def main():
   sub = p.add_subparsers(dest="cmd", required=True)
   r = sub.add_parser("run")
   r.add_argument("paths", nargs="*", help="test paths/node ids relative to vendor/jax")
-  r.add_argument("--target", choices=list(VENVS), default="shax")
+  r.add_argument("--target", choices=TARGETS, default="shax",
+                 help="pyodide = shax inside Pyodide under Node "
+                 "(-j shards files across Node processes)")
   r.add_argument("--subset", help="name of harness/subsets/<name>.txt")
   r.add_argument("-j", "--jobs", default="8", help="pytest-xdist workers (1 = no xdist)")
   r.add_argument("--slow", action="store_true", help="don't set JAX_SKIP_SLOW_TESTS")

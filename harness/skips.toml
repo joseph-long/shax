@@ -1,8 +1,304 @@
 # Tests the harness deliberately skips, with reasons. Matched as node-id
-# prefixes relative to vendor/jax (e.g. "tests/api_test.py::APITest::test_x").
+# prefixes relative to vendor/jax (e.g. "tests/api_test.py::APITest::test_x"),
+# or exactly with `exact = true` (for a test whose name prefixes others).
 # Whole files that are out of scope belong in harness/subsets/out-of-scope.txt,
 # not here. `targets` defaults to ["shax"].
 #
 # [[skip]]
 # nodeid = "tests/api_test.py::APITest::test_some_xla_detail"
 # reason = "inspects HLO text"
+
+# --- needs an XLA-only feature (jax.experimental.compute_on)
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_cache_miss_explanations_compute_on"
+reason = "needs an XLA-only feature (jax.experimental.compute_on)"
+
+# --- needs an XLA-only feature (jax.experimental.custom_partitioning)
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_cache_miss_explanations_custom_partitioning"
+reason = "needs an XLA-only feature (jax.experimental.custom_partitioning)"
+
+# --- needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_compiler_ir"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_inline_optimized_hlo"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_lax_logistic"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::JitTest::test_jit_lower_as_text"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::JitTest::test_jit_lower_compiler_ir"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::JitTest::test_jit_lower_trivial_compiler_ir"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::JitTest::test_jit_replica_attributes"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::OverrideLoweringTest::test_sharding_constraint_as_noop"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_no_cse_widget_on_primals"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_no_cse_widget_on_primals_new"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_no_cse_widget_on_primals_policy"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_no_cse_widget_with_prevent_cse_false"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_no_cse_widget_with_prevent_cse_false_new"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_remat_computed_residuals_cse_prevention"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_remat_cse_prevention_no_cotangents_flag"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_remat_partial_cse_prevention"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_remat_partial_cse_prevention_all_false"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_remat_partial_cse_prevention_pytree"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::Remat3Test::test_remat_partial_cse_prevention_pytree_prefix_forms"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_no_cse_widget_on_primals"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_no_cse_widget_on_primals_new"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_no_cse_widget_on_primals_policy"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_no_cse_widget_with_prevent_cse_false"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_no_cse_widget_with_prevent_cse_false_new"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_remat_partial_cse_prevention"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_remat_partial_cse_prevention_all_false"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::RematTest::test_remat_partial_cse_prevention_pytree"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/checkify_test.py::AssertPrimitiveTests::test_checkify_multithreaded_determinism"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/checkify_test.py::AssertPrimitiveTests::test_checkify_trace_determinism"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/fft_test.py::FftTest::testIrfftnGpuLoweringIsASingleFft"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::testIssue810"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_platform_dependent_batched"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_platform_dependent_grad"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_platform_dependent_lowering"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_platform_dependent_multiple_identical_branches"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_platform_dependent_with_non_existent_custom_call"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_scan_lowering_doesnt_introduce_singleton"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_scan_unroll"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_attribute_dtypes"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_decorator"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_array_consts"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_attributes"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_attributes_unstable"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_jit_function"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_multiple_platforms"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_no_args"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_non_default_version"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_symbolic_shapes"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_symbolic_shapes_execution"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::CompositeTest::test_composite_with_variadic_input_output"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::LaxTest::testDotAlgorithmConfig"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::LaxTest::test_dce_sink_prevents_xla_dce"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::LaxTest::test_polynomial_scan_no_prebroadcast"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/lax_test.py::LaxTest::test_shape_as_value_handles_polymorphic_shapes"
+reason = "needs jax.export (serialized StableHLO)"
+[[skip]]
+nodeid = "tests/python_callback_test.py::IOCallbackTest::test_can_use_io_callback_in_pjit_ordered=False_with_sharding=False"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/python_callback_test.py::IOCallbackTest::test_can_use_io_callback_in_pjit_ordered=False_with_sharding=True"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/python_callback_test.py::IOCallbackTest::test_can_use_io_callback_in_pjit_ordered=True_with_sharding=False"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/python_callback_test.py::IOCallbackTest::test_can_use_io_callback_in_pjit_ordered=True_with_sharding=True"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/python_callback_test.py::PureCallbackTest::test_can_shard_pure_callback_maximally_with_sharding"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/state_test.py::PinnedBuffersTest::test_empty_ref_pinned"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/state_test.py::PinnedBuffersTest::test_new_ref_pinned"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/state_test.py::PinnedBuffersTest::test_new_ref_unpinned_by_default"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/state_test.py::PinnedBuffersTest::test_pin_unpin_basic"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+
+# --- user primitive with only an MLIR lowering (shax can't run lowering rules)
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_grad_of_token_consuming_primitive"
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/lax_control_flow_test.py::LaxControlFlowTest::test_platform_dependent_with_primitive_with_lowering_error"
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+
+# --- needs an XLA-only feature (XLA HLO output callbacks)
+[[skip]]
+nodeid = "tests/python_callback_test.py::IOCallbackTest::test_create_hlo_output_callback"
+reason = "needs an XLA-only feature (XLA HLO output callbacks)"
+
+# --- counts Python stack frames: jaxlib's C++ (caches, pjit) adds none, shax's Python stand-ins must
+[[skip]]
+nodeid = "tests/api_test.py::TracebackTest::test_cond_traceback"
+reason = "counts Python stack frames; shax's jaxlib stand-ins are Python, jaxlib's are C++"
+[[skip]]
+nodeid = "tests/api_test.py::TracebackTest::test_jit_traceback"
+reason = "counts Python stack frames; shax's jaxlib stand-ins are Python, jaxlib's are C++"
+[[skip]]
+nodeid = "tests/api_test.py::TracebackTest::test_scan_traceback"
+reason = "counts Python stack frames; shax's jaxlib stand-ins are Python, jaxlib's are C++"
+
+# --- harness limitations
+[[skip]]
+nodeid = "tests/api_test.py::BackendsTest::test_no_backend_warning_on_cpu_if_platform_specified"
+reason = "runs `import jax` in a fresh subprocess, which the harness's aliasing can't reach"
+
+# --- inspects lowering internals
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_nested_jit_hoisting"
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/api_test.py::AutodidaxTest::test_autodidax_smoketest"
+reason = "autodidax builds StableHLO with jax.extend.mlir and compiles it with XLA"
+
+# --- Pyodide (WASM) only: limits of the platform, not shax bugs
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_cache_miss_explanations_are_thread_safe"
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_concurrent_device_get_and_put"
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/api_test.py::JitTest::test_concurrent_jit"
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/custom_api_test.py::CustomJVP3Remat3Test::test_concurrent_initial_style"
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/custom_api_test.py::CustomJVP3Test::test_concurrent_initial_style"
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/custom_api_test.py::CustomJVPRemat3Test::test_concurrent_initial_style"
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/custom_api_test.py::CustomJVPTest::test_concurrent_initial_style"
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/random_lax_test.py::DistributionsTest::testBernoulliSmallProbabilty"
+targets = ["pyodide"]
+reason = "1e8-element random draw needs more memory than the wasm32 heap has"
+[[skip]]
+nodeid = "tests/lax_numpy_test.py::LaxBackedNumpyTests::testSearchsortedDtype"
+targets = ["pyodide"]
+reason = "NumPy on wasm32 (32-bit C long) words the int32 OverflowError differently"
+[[skip]]
+nodeid = "tests/lax_numpy_test.py::LaxBackedNumpyTests::testFrexpBitExact"
+targets = ["pyodide"]
+reason = "reference np.frexp on wasm returns garbage exponents for inf/nan (C leaves them unspecified)"
+[[skip]]
+nodeid = "tests/lax_numpy_reducers_test.py::JaxNumpyReducerTests::testReducerPromoteInt35"
+exact = true
+targets = ["pyodide"]
+reason = "case only sampled on wasm32 (bfloat16 sum); real JAX fails it too: it accumulates in f32, NumPy's reference in bf16"
+[[skip]]
+nodeid = "tests/api_test.py::APITest::test_asarray_no_copy_np"
+targets = ["pyodide"]
+reason = "wasm32 malloc is 8-byte aligned, reaching an assert native 16-byte-aligned buffers skip; shax copies host arrays to stay immutable"

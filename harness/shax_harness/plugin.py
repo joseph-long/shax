@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
 import tomllib
 
 import pytest
@@ -43,10 +44,13 @@ def _load_skips(target):
   if not SKIPS_FILE.exists():
     return []
   data = tomllib.loads(SKIPS_FILE.read_text())
+  # Inside Pyodide the target is still "shax" (same code); entries for
+  # "pyodide" cover what WASM can't do (threads, >2 GiB, 32-bit C long).
+  active = {target} | ({"pyodide"} if sys.platform == "emscripten" else set())
   out = []
   for entry in data.get("skip", []):
-    if target in entry.get("targets", ["shax"]):
-      out.append((entry["nodeid"], entry["reason"]))
+    if active & set(entry.get("targets", ["shax"])):
+      out.append((entry["nodeid"], entry["reason"], entry.get("exact", False)))
   return out
 
 
@@ -55,8 +59,8 @@ def pytest_collection_modifyitems(config, items):
   if not skips:
     return
   for item in items:
-    for prefix, reason in skips:
-      if item.nodeid.startswith(prefix):
+    for prefix, reason, exact in skips:
+      if item.nodeid == prefix if exact else item.nodeid.startswith(prefix):
         item.add_marker(pytest.mark.skip(reason=f"harness-skip: {reason}"))
         break
 

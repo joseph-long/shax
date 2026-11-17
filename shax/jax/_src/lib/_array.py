@@ -83,6 +83,25 @@ class ArrayImpl(basearray.Array):
   def is_deleted(self) -> bool:
     return self._deleted
 
+  def _replace_with(self, o):
+    """py_array.cc ReplaceWithAlias: make this array alias `o`'s buffer.
+    Used to write a jit's updated `Ref` values back into the Ref's array."""
+    if o is self:
+      raise ValueError("Unable to replace an Array with itself.")
+    for what, a, b in (("dtype", self.aval.dtype, o.aval.dtype),
+                       ("shape", self.aval.shape, o.aval.shape),
+                       ("sharding", self._sharding, o._sharding),
+                       ("committed", self._committed, o._committed),
+                       ("weak_type", self.aval.weak_type, o.aval.weak_type)):
+      if a != b:
+        raise ValueError(
+            f"Unable to replace an Array with an Array of different {what}.")
+    if self._deleted or o._deleted:
+      raise ValueError("Unable to replace an Array when one or both arrays "
+                       "have been deleted.")
+    self._npy_value = o._npy_value  # read-only, so sharing it is safe
+    self.__dict__.pop("_s_fully_replicated", None)
+
   @property
   def _pjrt_layout(self):
     self._check_if_deleted()

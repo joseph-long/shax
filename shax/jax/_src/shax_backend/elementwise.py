@@ -196,6 +196,13 @@ def _convert(x, new_dtype):
     return np.zeros(x.shape, new_dtype)
   if new_dtype == np.bool_:
     return x != 0
+  if (old == np.bool_ and _is_int(new_dtype) and not _is_signed(new_dtype)
+      and _nbits(new_dtype) <= 8):
+    # XLA:CPU converts pred to an unsigned type of <= 8 bits by keeping the
+    # stored byte (masked to the width), so a bool holding e.g. 96 (from a
+    # NumPy view) converts to 96, not 1. `arr.view()` relies on this.
+    return _wrap_int(x.view(np.uint8) & np.uint8((1 << _nbits(new_dtype)) - 1),
+                     new_dtype)
   if _is_complex(old) and not _is_complex(new_dtype):
     x = np.real(x)
     old = x.dtype
@@ -254,7 +261,7 @@ def _from_bits(bits, dt):
   dt = np.dtype(dt)
   n = _nbits(dt)
   if n >= 8:
-    return _c(bits.astype(_uint_for_bits(n))).view(dt)
+    return _c(bits.astype(_uint_for_bits(n), copy=False)).view(dt)
   bits = bits.astype(np.uint8) & ((1 << n) - 1)
   if _is_int(dt):
     return _wrap_int(bits, dt)
@@ -829,26 +836,31 @@ def _not(x):
 
 
 def _shift(kind):
+  # Works at the operand's own width (sub-byte types in uint8) and lets the
+  # shift amount broadcast, so no full-size uint64 temporaries: random bit
+  # generation shifts 1e8-element arrays, which wasm32 can't afford 8x of.
   def impl(x, y):
-    x, y = np.broadcast_arrays(np.asarray(x), np.asarray(y))
+    x, y = np.asarray(x), np.asarray(y)
     dt = x.dtype
     n = _nbits(dt)
-    mask = np.uint64((1 << n) - 1) if n < 64 else np.uint64(0xFFFFFFFFFFFFFFFF)
-    xb = _to_bits(x).astype(np.uint64)
-    yb = _to_bits(y).astype(np.uint64)  # negative shifts are huge unsigned
-    oob = yb >= np.uint64(n)
-    s = np.where(oob, np.uint64(0), yb).astype(np.uint64)
+    U, I = _uint_for_bits(n), _int_for_bits(n)
+    xb = _to_bits(x)
+    yb = _to_bits(y).astype(U, copy=False)  # negative shifts are huge unsigned
+    oob = yb >= U(n)
+    s = np.where(oob, U(0), yb)
     if kind == "left":
-      r = np.where(oob, np.uint64(0), (xb << s) & mask)
+      r = np.where(oob, U(0), xb << s)
     elif kind == "logical":
-      r = np.where(oob, np.uint64(0), xb >> s)
+      r = np.where(oob, U(0), xb >> s)
     else:
-      xs = xb.astype(np.int64) if n == 64 else xb.view(np.int64)
-      if n < 64:
-        xs = np.where(xs >= (1 << (n - 1)), xs - (1 << n), xs)
-      r = np.where(oob, np.where(xs < 0, -1, 0), xs >> s.astype(np.int64))
-      r = r.astype(np.int64).view(np.uint64) & mask
-    return _from_bits(np.asarray(r, dtype=np.uint64), dt)
+      xs = xb.view(I)
+      if n < 8:  # sign-extend the n-bit value held in a uint8
+        xs = np.where(xb >= U(1 << (n - 1)), xs - I(1 << n), xs)
+      r = np.where(oob, np.where(xs < 0, I(-1), I(0)), xs >> s.view(I))
+      r = r.astype(I, copy=False).view(U)
+    if n < 8:
+      r = r & U((1 << n) - 1)
+    return _from_bits(np.asarray(r, dtype=U), dt)
   return impl
 
 
@@ -1045,12 +1057,9 @@ def _polygamma(m, x):
   return np.where(is_int & (m >= 0), out, np.nan)
 
 
-@register(special.regularized_incomplete_beta_p)
-def _regularized_incomplete_beta(a, b, x):
-  a, b, x = _up(a), _up(b), _up(x)
-  out = _scipy_special().betainc(a, b, x)
-  bad = (a <= 0) | (b <= 0) | (x < 0) | (x > 1)
-  return np.where(bad, np.nan, out)
+# regularized_incomplete_beta_p has no NumPy impl on purpose: the backend
+# evaluates upstream's lax expansion (regularized_incomplete_beta_impl, its
+# `lower_fun` lowering), which is what XLA runs, boundary cases included.
 
 
 # igamma family: NumPy ports of JAX's series / continued-fraction algorithms

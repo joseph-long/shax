@@ -21,6 +21,7 @@ from collections.abc import Sequence
 import copy
 import dataclasses
 import re
+import weakref
 from typing import Any
 
 import numpy as np
@@ -86,6 +87,7 @@ def lower_jaxpr_to_module(module_name, jaxpr, *, num_const_args, in_avals,
   """The tail of `mlir.lower_jaxpr_to_module`, minus MLIR."""
   from shax.jax._src import util  # noqa: PLC0415
   from shax.jax._src.interpreters import mlir  # noqa: PLC0415
+  _check_lowering_rules(jaxpr.jaxpr, platforms)
   module = ShaxModule(module_name, jaxpr, num_const_args=num_const_args,
                       in_avals=in_avals, out_avals=out_avals,
                       ordered_effects=ordered_effects, platforms=platforms,
@@ -93,6 +95,56 @@ def lower_jaxpr_to_module(module_name, jaxpr, *, num_const_args, in_avals,
   util.test_event("mlir.collect_lowered_jaxprs", jaxpr, module)
   return mlir.LoweringResult(
       module, [], [], mlir.ShapePolyLoweringState(dim_vars, platforms))
+
+
+def _lowering_time_checks(eqn) -> None:
+  """Errors that upstream lowering *rules* raise, which shax (running no
+  lowering rules) reproduces here."""
+  from shax.jax._src import checkify, config  # noqa: PLC0415
+  if eqn.primitive is checkify.check_p:
+    # checkify.check_lowering_rule (cpu): a check that was never
+    # functionalized can't be staged, unless XLA runtime errors are enabled.
+    if not eqn.params["debug"] and not config.xla_runtime_errors.value:
+      raise checkify.functionalization_error
+
+
+def _check_lowering_rules(jaxpr, platforms) -> None:
+  """Fail like upstream's lowering when a primitive has no MLIR lowering rule
+  for the platform (`mlir._get_lowering_rules` / `lower_per_platform`).
+
+  shax never runs lowering rules, but whether one is registered is part of
+  JAX's observable behaviour: jit of a primitive that only has an `impl`
+  and an abstract eval fails at lowering time.
+  """
+  from shax.jax._src import core, pjit  # noqa: PLC0415
+  from shax.jax._src.interpreters import mlir  # noqa: PLC0415
+  # Only jaxprs that upstream lowers as they are (the top level, nested jits
+  # and closed calls). Higher-order primitives' lowering rules may rewrite
+  # their bodies first (e.g. cond/scan/while discharge Ref effects), so a
+  # rule-less primitive there needn't be an error.
+  plain_calls = {pjit.jit_p, core.closed_call_p, core.call_p}
+  seen: set = set()
+
+  def check(j):
+    for eqn in j.eqns:
+      prim = eqn.primitive
+      if prim not in seen:
+        seen.add(prim)
+        if prim not in mlir._lowerings:
+          missing = [p for p in platforms
+                     if prim not in mlir._platform_specific_lowerings[p]]
+          if missing:
+            where = (f"platform {missing[0]}" if len(platforms) == 1
+                     else f"platforms {missing}")
+            raise NotImplementedError(
+                f"MLIR translation rule for primitive '{prim}' not found "
+                f"for {where}")
+      _lowering_time_checks(eqn)
+      if prim in plain_calls:
+        for sub in core.jaxprs_in_params(eqn.params):
+          check(sub)
+
+  check(jaxpr)
 
 
 # --- compilation ---------------------------------------------------------------
@@ -210,6 +262,14 @@ def _nbytes(avals) -> int:
   return total
 
 
+_LIVE_EXECUTABLES: "weakref.WeakSet[ShaxExecutable]" = weakref.WeakSet()
+
+
+def live_executables() -> list:
+  """`Client.live_executables()`: the executables not yet garbage collected."""
+  return list(_LIVE_EXECUTABLES)
+
+
 class ShaxExecutable:
   """Stands in for an XLA `LoadedExecutable`: a `ShaxModule`, "compiled"."""
 
@@ -222,6 +282,7 @@ class ShaxExecutable:
     self._devices = list(devices)
     self.compiler_options_kvs = compiler_options_kvs
     self.fingerprint = None
+    _LIVE_EXECUTABLES.add(self)
 
   def __repr__(self):
     return f"<ShaxExecutable {self.name}>"
@@ -342,7 +403,9 @@ def _make_execute_class():
       module = self.xla_executable.module
       # shard_args turns PRNG key arrays into their physical buffers (what an
       # XLA executable takes); the jaxpr wants the key arrays themselves.
-      input_bufs = [x if _is_ext(a) else b for x, b, a in
+      # Likewise tokens: shard_args unwraps a core.Token to its buffer.
+      input_bufs = [x if _is_ext(a) or isinstance(a, core.AbstractToken)
+                    else b for x, b, a in
                     zip(args, input_bufs, module.in_avals, strict=True)]
       # (Check and consume the caller's arrays: in jaxlib, shard_args with
       # REUSE_INPUT shares their buffers.)

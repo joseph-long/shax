@@ -15,6 +15,9 @@ from shax.jax._src.lib import hlo, jax_mlir_ext, _profile_data  # MLIR/profiler 
 
 # Optional jaxlib components that shax doesn't have. Upstream checks these for
 # None before use.
+# jaxlib's _xla (XLA compiler hooks such as HLO-module transforms): calling
+# anything raises NotImplementedError.
+_xla = _jax._UnsupportedNamespace("jaxlib._xla")
 lapack = None
 gpu_linalg = gpu_solver = gpu_sparse = gpu_prng = gpu_rnn = gpu_triton = None
 cuda_versions = None

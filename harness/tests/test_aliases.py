@@ -60,3 +60,14 @@ def test_import_forms_agree():
       assert a is b is sys.modules['shax.jax._src.test_warning_util']
   """)
   assert r.returncode == 0, r.stderr
+
+
+def test_opt_einsum_is_vendored_copy():
+  r = run("""
+      import opt_einsum, shax._vendor.opt_einsum as vendored
+      from opt_einsum import contract
+      assert opt_einsum is vendored, opt_einsum
+      assert contract is vendored.contract
+      from jax._src import lax_reference  # imports opt_einsum
+  """)
+  assert r.returncode == 0, r.stderr

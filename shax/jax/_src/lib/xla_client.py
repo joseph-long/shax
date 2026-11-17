@@ -110,6 +110,10 @@ class Client:
     from shax.jax._src.lib import _array  # noqa: PLC0415
     return _array.live_arrays()
 
+  def live_executables(self):
+    from shax.jax._src.shax_backend import aot  # noqa: PLC0415
+    return aot.live_executables()
+
   def local_devices(self):
     return list(self._devices)
 
