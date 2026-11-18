@@ -27,16 +27,31 @@ from shax.jax._src.shax_backend import register, to_numpy
 # ---------------------------------------------------------------------------
 # dtype helpers
 
+_subdtype_memo: dict = {}
+
+
+def _subdtype(dt, cls) -> bool:
+  """`issubdtype`, memoized: it's on the per-op hot path with few dtypes."""
+  key = (dt, cls)
+  try:
+    r = _subdtype_memo.get(key)
+  except TypeError:  # an unhashable dtype-like
+    return bool(jdt.issubdtype(dt, cls))
+  if r is None:
+    r = _subdtype_memo[key] = bool(jdt.issubdtype(dt, cls))
+  return r
+
+
 def _is_float(dt):
-  return jdt.issubdtype(dt, np.floating)
+  return _subdtype(dt, np.floating)
 
 
 def _is_complex(dt):
-  return jdt.issubdtype(dt, np.complexfloating)
+  return _subdtype(dt, np.complexfloating)
 
 
 def _is_int(dt):
-  return jdt.issubdtype(dt, np.integer)
+  return _subdtype(dt, np.integer)
 
 
 def _is_bool(dt):

@@ -463,6 +463,23 @@ def eval_jaxpr_compiled(jaxpr, consts, *args) -> list[Any]:
     prim = eqn.primitive
     fast = _fast_impl(prim)
     direct = fast is not None and eval_trace
+    if direct and _raw_eligible(eqn):
+      # SHAX: plain NumPy on plain ndarrays reads no config, so it skips the
+      # per-eqn context managers (a dozen thread-local swaps per eqn); the
+      # source context is only needed if it raises.
+      try:
+        outs = _run_raw(fast, prim, list(map(read_np, eqn.invars)), eqn)
+      except Exception:
+        with source_info_util.user_context(
+            eqn.source_info.traceback,
+            name_stack=(source_info_util.current_name_stack()
+                        + eqn.source_info.name_stack)), eqn.ctx.manager:
+          outs = _run_raw(fast, prim, list(map(read_np, eqn.invars)), eqn)
+      for v, o in zip(eqn.outvars, outs, strict=True):
+        env[v] = o
+        raw_vals.add(v)
+      core.clean_up_dead_vars(eqn, env, lu)
+      continue
     name_stack = (source_info_util.current_name_stack()
                   + eqn.source_info.name_stack)
     with (source_info_util.user_context(eqn.source_info.traceback,
@@ -476,13 +493,6 @@ def eval_jaxpr_compiled(jaxpr, consts, *args) -> list[Any]:
         ans = eval_jaxpr_compiled(inner.jaxpr, inner.consts,
                                   *map(read, eqn.invars))
         foreach(write, eqn.outvars, ans)
-        core.clean_up_dead_vars(eqn, env, lu)
-        continue
-      if direct and _raw_eligible(eqn):
-        outs = _run_raw(fast, prim, list(map(read_np, eqn.invars)), eqn)
-        for v, o in zip(eqn.outvars, outs, strict=True):
-          env[v] = o
-          raw_vals.add(v)
         core.clean_up_dead_vars(eqn, env, lu)
         continue
       if eval_trace and prim in _jit_impls:

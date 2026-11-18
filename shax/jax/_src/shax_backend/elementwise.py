@@ -103,16 +103,31 @@ def register(prim, *, cast: bool = True, ftz: bool | tuple = False):
 _NATIVE_FLOATS = (np.dtype(np.float32), np.dtype(np.float64))
 
 
+_subdtype_memo: dict = {}
+
+
+def _subdtype(dt, cls) -> bool:
+  """`issubdtype`, memoized: it's on the per-op hot path with few dtypes."""
+  key = (dt, cls)
+  try:
+    r = _subdtype_memo.get(key)
+  except TypeError:  # an unhashable dtype-like
+    return bool(dtypes.issubdtype(dt, cls))
+  if r is None:
+    r = _subdtype_memo[key] = bool(dtypes.issubdtype(dt, cls))
+  return r
+
+
 def _is_float(dt) -> bool:
-  return dtypes.issubdtype(dt, np.floating)
+  return _subdtype(dt, np.floating)
 
 
 def _is_complex(dt) -> bool:
-  return dtypes.issubdtype(dt, np.complexfloating)
+  return _subdtype(dt, np.complexfloating)
 
 
 def _is_int(dt) -> bool:
-  return dtypes.issubdtype(dt, np.integer)
+  return _subdtype(dt, np.integer)
 
 
 def _is_signed(dt) -> bool:
