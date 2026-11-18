@@ -23,7 +23,7 @@ at `../../dist/`; marimo's export copies them into `public/wheels/`.
 packaging/build-wheels.sh                     # -> dist/
 pip install "marimo==0.25.2" playwright       # in some venv; then:
 playwright install chromium                   # the offline export resolves packages in a headless browser
-marimo export html-wasm examples/optax-wasm/notebook.py -o /tmp/optax-wasm --mode run --offline
+marimo export html-wasm examples/optax-wasm/notebook.py -o /tmp/optax-wasm --mode run --show-code --offline
 python scripts/check-wasm-export.py /tmp/optax-wasm --screenshot /tmp/optax-wasm.png
 python -m http.server --directory /tmp/optax-wasm   # to try it yourself
 ```
