@@ -1,0 +1,18 @@
+# A `jax` distribution that is shax: `import jax` gives `shax.jax`.
+# For environments without jaxlib (Pyodide/WASM), so that packages declaring
+# `jax` as a dependency (optax, chex, ...) install and import shax.
+# Version: upstream JAX version shax ports, plus a `+shax` local label.
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jax"
+version = "0.12.0.1+shax"
+description = "shax (NumPy-backed JAX imitation) installed under the name `jax`"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = ["shax==0.0.1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["jax"]

@@ -137,6 +137,10 @@ def _postflight(target: str, upstream_root: Path) -> None:
           f"shax harness: `jax` resolved to the vendored source tree "
           f"({jax_file}); run pytest from the repo root, not vendor/jax")
   if target == "jax-ported":
-    from jax._src import test_util  # noqa: PLC0415
-    if test_util.__name__ != PORTED_TEST_UTIL:
+    # Check the alias without importing test_util: it binds `sys.stdout` at
+    # import (capture_stdout), so it must first be imported where upstream's
+    # is, during collection with pytest's capture in place.
+    spec = importlib.util.find_spec("jax._src.test_util")
+    loader = getattr(spec, "loader", None)
+    if getattr(loader, "target", None) != PORTED_TEST_UTIL:
       raise RuntimeError("shax harness: ported test_util was not picked up")

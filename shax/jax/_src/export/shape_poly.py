@@ -35,7 +35,6 @@ import warnings
 
 import numpy as np
 from shax._vendor import opt_einsum
-
 from shax.jax._src import api
 from shax.jax._src import config
 from shax.jax._src import core

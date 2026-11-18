@@ -14,3 +14,4 @@ vendor/
 .venv/
 .venv-*/
 .jaxtest/
+__marimo__/

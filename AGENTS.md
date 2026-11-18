@@ -51,8 +51,11 @@ Speed is a non-goal. Correctness is measured by running JAX's own test suite.
   When porting, prefer adding a stand-in under `lib/` or a small `# SHAX:` edit
   over restructuring upstream code. Don't port modules nobody imports.
   `vendor/jax/docs/autodidax.md` is still a good map of how the pieces fit.
-- **Licensing:** ported files are Apache-2.0 (JAX's license, copied to
-  `shax/jax/_src/LICENSE-JAX`); keep upstream copyright headers.
+- **Licensing:** shax is Apache-2.0, matching JAX (`LICENSE`; decided
+  2026-11-17). Ported files keep their upstream copyright headers, with
+  JAX's license also at `shax/jax/_src/LICENSE-JAX`. Vendored opt_einsum
+  stays MIT (`shax/_vendor/opt_einsum/LICENSE`); the package's SPDX
+  expression is `Apache-2.0 AND MIT`.
 - **Arrays are immutable, JAX-style.** `shax` `Array` wraps a read-only NumPy
   array; no in-place mutation; updates go through `x.at[idx].set/add/mul/min/max/
   get/apply` with JAX's scatter/gather semantics (out-of-bounds gather clamps by
@@ -90,6 +93,9 @@ shax/                        # the shim; `from shax import jax` / `shax.jax.nump
       LICENSE-JAX            #     Apache-2.0 license of the ported code
       lib/                   #     pure-Python stand-ins for jaxlib (see "shax internals")
       shax_backend/          #     shax's NumPy execution backend (shax-original code)
+  as_jax.py                  #   `import shax.as_jax` makes `jax`/`jax.X` alias shax.jax(.X)
+packaging/                   # `jax` / `jaxlib` shim wheels (+ build-wheels.sh -> dist/)
+examples/optax-wasm/         # marimo notebook: jax.grad + optax, offline html-wasm export
 tests/lib/                   # differential tests of lib/ stand-ins vs real jaxlib (+ fixtures)
 harness/
   shax_harness/
@@ -106,9 +112,10 @@ scripts/
   fetch-jax.sh               # clone vendor/jax at the pinned tag
   setup-envs.sh              # create .venv (shax, no jax) and .venv-jaxref (real jax)
   jaxtest                    # runner: run / compare / summary
-  port-upstream.py           # copy an upstream module into shax/ with import rewrites
+  port-upstream.py           # port a module; --status; --rebase onto a new upstream tag
   fetch-pyodide.py           # pinned Pyodide runtime + wheels -> vendor/pyodide/<ver> (hash-checked)
   pyodide-pytest.mjs         # Node: run pytest inside Pyodide with the repo mounted
+  check-wasm-export.py       # load a marimo html-wasm export offline in headless Chromium
 vendor/jax/                  # upstream checkout (gitignored)
 vendor/pyodide/              # Pyodide runtime + wheels (gitignored)
 .jaxtest/                    # run reports (gitignored)
@@ -153,6 +160,19 @@ that `sample_product` case lists can differ on wasm32 (`np.long` is int32),
 so a case index like `testFoo35` can name a different case there. Mind
 memory in the backend: a full-size uint64 temporary per op is 8x a 1e8-element
 bool draw, more than wasm32 can allocate.
+
+## Goalpost: JAX code in an offline marimo WASM export (met 2026-11-17)
+
+`examples/optax-wasm/notebook.py` (jit + value_and_grad + optax.adam)
+exported with `marimo export html-wasm --offline` runs in headless Chromium
+with all network blocked (`scripts/check-wasm-export.py`), with the same
+result as natively. See `examples/optax-wasm/README.md`. Libraries that
+`import jax` get shax through the `jax` shim wheel (`packaging/jax-shim`,
+version `0.12.0.1+shax`, which runs `shax.as_jax`); the metadata-only
+`jaxlib` shim satisfies their `jaxlib` requirement. marimo 0.25.2 uses
+Pyodide **314.0.0** (numpy 2.4.3), older than the harness's 314.0.8.
+optax 0.2.9 (adam, adamw + schedules + clipping, sgd/nesterov, lbfgs,
+masked) and chex assertions match real JAX on CPU.
 
 ## How the harness works (and its gotchas)
 
@@ -227,6 +247,17 @@ bool draw, more than wasm32 can allocate.
     the modules listed in `_IMPL_MODULES`. Results are cast and checked against
     `prim.abstract_eval`; `raw=True` impls get JAX values (for higher-order
     primitives).
+  - **Compiled evaluation is the hot path** (`eval_jaxpr_compiled`; an optax
+    step is ~50 primitives). Inside it: first-order NumPy impls pass plain
+    ndarrays between equations, typed from the jaxpr's `outvar.aval` (no
+    per-op `abstract_eval` or ArrayImpl; wrapped lazily when something else
+    reads them); nested `jit` eqns are inlined (as XLA does); primitives
+    whose lowering is `lower_fun` of Python code (e.g. PRNG
+    `random_bits`/`split`/`fold_in`/`seed`, `shax_backend/prng_jit.py`)
+    are traced once per signature and evaluated, never run eagerly (eager
+    ops would dispatch jits, firing `jit_cpp_cache_miss`). `add_any` has a
+    raw-path-only impl. Profile with an optax loop before adding per-op
+    work here.
   - `jit` traces once (upstream's Python caches), then evaluates the cached jaxpr
     eagerly with `eval_jaxpr_compiled`. That works like compiled code: a
     first-order primitive with a NumPy impl runs it directly, never the
@@ -291,6 +322,10 @@ bool draw, more than wasm32 can allocate.
 - **`lib/_jax.py` canonicalization:** NumPy arrays canonicalize through a
   `WeakKeyWeakValueCache` (as in jaxlib), so the same array yields the same
   TypedNdArray while both live; tracing dedups constants by `id()`.
+- **`erf_inv`** (every `jax.random.normal`) uses XLA's float32 Giles
+  polynomial (<= 2 ulp from JAX), not SciPy; f64 uses SciPy if present,
+  else Newton steps. Keep common ops SciPy-free: in a WASM export SciPy is
+  a large extra download.
 - **XLA quirks worth matching:** a bool holding a non-0/1 byte converts to
   unsigned <=8-bit types by keeping the byte (masked), which `arr.view()`
   relies on; to anything else it converts to 0/1.
@@ -405,6 +440,31 @@ Out of scope (don't target): `pjit`, `shard_map`, `pmap`, `multi_device`, `memor
 `layout`, `pallas/`, `mosaic*`, `export*`, `compilation_cache`, `ffi`, `profiler*`,
 `multiprocess*`, `distributed*`, `cudnn*`/`fused_attention*`/GPU/TPU-specific files,
 `xla_*`, `jax_to_ir`, `filecheck/`.
+
+## Moving the upstream pin
+
+shax tracks one JAX tag (`TAG` in `scripts/port-upstream.py`, `JAX_TAG` in
+`scripts/fetch-jax.sh`). `scripts/port-upstream.py --status` lists every
+ported file (found by its `# SHAX: ported from` header) and how many hunks it
+differs from the mechanical port; most files are identical, so a re-port is
+mostly mechanical. To move to a new tag:
+
+1. `JAX_TAG=jax-vX.Y.Z JAX_DEST=vendor/jax-new scripts/fetch-jax.sh`
+2. `scripts/port-upstream.py --rebase vendor/jax-new --new-tag jax-vX.Y.Z`
+   three-way merges each ported file: base = mechanical port of the current
+   pin, ours = the shax file, theirs = mechanical port of the new tag. Hand
+   edits carry over; conflicts are left as diff3 markers, and files deleted
+   upstream are listed.
+3. Resolve conflicts. Re-check the `lib/` stand-ins against the new
+   `vendor/jax/jaxlib/*.cc` (and `jaxlib_extension_version` checks in
+   upstream code), and port any newly imported modules
+   (`ModuleNotFoundError: shax.jax._src.X`).
+4. Bump `TAG` and `JAX_TAG`, replace `vendor/jax` with the new checkout,
+   rebuild `.venv-jaxref` for the new jax/jaxlib, and port
+   `harness/shax_harness/test_util.py` from the new upstream `test_util.py`.
+5. Re-run `jax-upstream` vs `jax-ported` (must match), then the shax
+   subsets. Expect test-list churn; compare to the old baselines, then
+   accept new ones.
 
 ## Workflow
 

@@ -1,0 +1,16 @@
+# Metadata-only `jaxlib`: satisfies packages that declare a jaxlib dependency
+# (optax, chex) when shax stands in for jax. It installs no modules, so
+# `import jaxlib` still fails, as it should without real jaxlib.
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jaxlib"
+version = "0.12.0.1+shax"
+description = "Empty stand-in for jaxlib, for use with shax's `jax` shim"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true

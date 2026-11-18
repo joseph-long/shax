@@ -23,24 +23,34 @@ _FTZ_DTYPES = ("float32", "float64", "bfloat16", "complex64", "complex128")
 _HW_FLOATS = ("float32", "float64", "complex64", "complex128")
 
 
+# Smallest normal per flushed dtype (bfloat16 is checked in float32).
+_TINY = {"float32": np.finfo(np.float32).tiny, "bfloat16": np.finfo(np.float32).tiny,
+         "float64": np.finfo(np.float64).tiny, "complex64": np.finfo(np.float32).tiny,
+         "complex128": np.finfo(np.float64).tiny}
+
+
 def _ftz(a, dtypes_=_FTZ_DTYPES):
   """Flush denormals to (signed) zero, as XLA:CPU does (FTZ + DAZ)."""
   a = np.asarray(a)
-  if a.dtype.name not in dtypes_:
+  name = a.dtype.name
+  if name not in dtypes_:
     return a
-  if _is_complex(a.dtype):
-    tiny = np.finfo(a.dtype).tiny
-    re = np.where(np.abs(a.real) < tiny, np.copysign(0, a.real), a.real)
-    im = np.where(np.abs(a.imag) < tiny, np.copysign(0, a.imag), a.imag)
+  tiny = _TINY[name]
+  if a.dtype.kind == "c":
+    re, im = a.real, a.imag
+    if not (np.any((np.abs(re) < tiny) & (re != 0))
+            or np.any((np.abs(im) < tiny) & (im != 0))):
+      return a
+    re = np.where(np.abs(re) < tiny, np.copysign(0, re), re)
+    im = np.where(np.abs(im) < tiny, np.copysign(0, im), im)
     out = np.empty(a.shape, a.dtype)
     out.real, out.imag = re, im
     return out
-  w = a.astype(np.float32) if a.dtype.name == "bfloat16" else a
-  tiny = np.finfo(np.float32 if a.dtype.name == "bfloat16" else a.dtype).tiny
-  flush = np.abs(w) < tiny
-  if not np.any(flush):
+  w = a.astype(np.float32) if name == "bfloat16" else a
+  small = np.abs(w) < tiny  # includes zeros, which need no flushing
+  if not np.any(small & (w != 0)):
     return a
-  return np.where(flush, np.copysign(np.zeros((), w.dtype), w).astype(a.dtype), a)
+  return np.where(small, np.copysign(np.zeros((), w.dtype), w).astype(a.dtype), a)
 
 
 def register(prim, *, cast: bool = True, ftz: bool | tuple = False):
@@ -351,6 +361,15 @@ def _add(x, y, **params):
   if np.asarray(x).dtype == np.bool_:
     return np.logical_or(x, y)
   return _int_binop(np.add)(x, y)
+
+
+def _register_raw_only_add_any():
+  # add_any (gradient accumulation) is a plain add on arrays. Only the raw
+  # path uses this impl: eager add_any keeps upstream's (it also adds float0
+  # and other jaxval types).
+  from shax.jax._src import ad_util  # noqa: PLC0415
+  from shax.jax._src.shax_backend import _impls, _raw_only_impls  # noqa: PLC0415
+  _raw_only_impls[ad_util.add_jaxvals_p] = _impls[lax.add_p]
 
 
 @register(lax.sub_p, ftz=True)
@@ -1016,9 +1035,46 @@ def _erfc(x, **params):
   return sc.erfc(x) if sc is not None else _vectorize_math(math.erfc, x)
 
 
+# Giles, "Approximating the erfinv function" (2010), single precision: the
+# polynomial XLA uses for f32 (and narrower types, computed in f32). Matches
+# jax's lax.erf_inv to <= 2 ulp; SciPy's erfinv is further off and pulls in
+# SciPy for every jax.random.normal.
+_ERFINV_SMALL = (2.81022636e-08, 3.43273939e-07, -3.5233877e-06,
+                 -4.39150654e-06, 0.00021858087, -0.00125372503,
+                 -0.00417768164, 0.246640727, 1.50140941)
+_ERFINV_LARGE = (-0.000200214257, 0.000100950558, 0.00134934322,
+                 -0.00367342844, 0.00573950773, -0.0076224613,
+                 0.00943887047, 1.00167406, 2.83297682)
+
+
+def _erf_inv_f32(x):
+  x = np.asarray(x, np.float32)
+  w = -np.log1p(-x * x)
+  small = w < np.float32(5)
+  ww = np.where(small, w - np.float32(2.5), np.sqrt(w) - np.float32(3))
+  p = np.where(small, np.float32(_ERFINV_SMALL[0]), np.float32(_ERFINV_LARGE[0]))
+  for a, b in zip(_ERFINV_SMALL[1:], _ERFINV_LARGE[1:]):
+    p = np.where(small, np.float32(a), np.float32(b)) + p * ww
+  return np.where(np.abs(x) == 1, x * np.float32(np.inf), p * x)
+
+
 @register(special.erf_inv_p)
 def _erf_inv(x):
-  return _scipy_special().erfinv(_up(x))
+  x = _up(x)
+  if x.dtype != np.float64:
+    return _erf_inv_f32(x)
+  sc = _scipy_special()
+  if sc is not None:
+    return sc.erfinv(x)
+  # No SciPy: refine the f32 estimate with Newton steps on erf.
+  y = _erf_inv_f32(x).astype(np.float64)
+  finite = np.isfinite(y)
+  for _ in range(2):
+    ys = np.where(finite, y, 0.)
+    step = ((_vectorize_math(math.erf, ys) - x)
+            / (2 / math.sqrt(math.pi) * np.exp(-ys * ys)))
+    y = np.where(finite, y - step, y)
+  return y
 
 
 @register(special.bessel_i0e_p)
@@ -1214,3 +1270,6 @@ def _igamma_grad_a(a, x):
                  _igamma_series(ax, x, a, enabled & ~use_c, dt, _DERIVATIVE))
   out = np.where(x_zero, 0, out)
   return np.where(domain | is_nan, np.nan, out)
+
+
+_register_raw_only_add_any()

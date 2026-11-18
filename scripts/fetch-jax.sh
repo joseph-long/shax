@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Fetch the pinned upstream JAX checkout used as shax's test oracle.
 # Usage: scripts/fetch-jax.sh [--force]
+# To try a new pin without touching vendor/jax (see port-upstream.py --rebase):
+#   JAX_TAG=jax-vX.Y.Z JAX_DEST=vendor/jax-new scripts/fetch-jax.sh
 set -euo pipefail
 
 JAX_TAG="${JAX_TAG:-jax-v0.12.0.1}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="$REPO_ROOT/vendor/jax"
+DEST="${JAX_DEST:-$REPO_ROOT/vendor/jax}"
+[[ "$DEST" = /* ]] || DEST="$REPO_ROOT/$DEST"
 
 if [[ -d "$DEST/.git" ]]; then
   current="$(git -C "$DEST" describe --tags --exact-match 2>/dev/null || echo unknown)"
@@ -20,7 +23,7 @@ if [[ -d "$DEST/.git" ]]; then
   rm -rf "$DEST"
 fi
 
-mkdir -p "$REPO_ROOT/vendor"
+mkdir -p "$(dirname "$DEST")"
 git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$JAX_TAG" \
   https://github.com/jax-ml/jax "$DEST"
-echo "Fetched $JAX_TAG into vendor/jax"
+echo "Fetched $JAX_TAG into $DEST"

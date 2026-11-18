@@ -36,3 +36,9 @@ it should be able to run your JAX code on CPU with `shax`. How, exactly, is to b
 ## Non-goals
 
 There's no attempt here to make a performant JAX alternative. Just get browser/WASM execution using well-supported parts of the scientific software stack.
+
+## License
+
+Apache-2.0, like JAX (see `LICENSE`). Code ported from JAX keeps its
+upstream copyright headers. The vendored `opt_einsum` (`shax/_vendor/opt_einsum`)
+is MIT-licensed.

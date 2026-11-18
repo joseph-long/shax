@@ -34,6 +34,7 @@ _IMPL_MODULES = (
     "shax.jax._src.shax_backend.structural",
     "shax.jax._src.shax_backend.numerics",
     "shax.jax._src.shax_backend.control",
+    "shax.jax._src.shax_backend.prng_jit",
 )
 
 
@@ -197,6 +198,35 @@ def _lowered_fun(prim):
   return None
 
 
+_lowering_cache: dict = {}
+
+# Primitives with a Python impl that compiled evaluation runs differently
+# (as their lowering would), registered with `register_jit_impl`.
+_jit_impls: dict = {}
+
+
+def register_jit_impl(prim):
+  def deco(fn):
+    _jit_impls[prim] = fn
+    return fn
+  return deco
+
+
+def _compiled_call(key, fn, *args):
+  """`fn(*args)` as compiled code: trace once per (key, arg types), then
+  evaluate the jaxpr with `eval_jaxpr_compiled` (no eager op dispatch)."""
+  from shax.jax._src import api, core  # noqa: PLC0415
+  k = (key, tuple(core.typeof(a) for a in args))
+  closed = _lowering_cache.get(k)
+  if closed is None:
+    closed = api.make_jaxpr(fn)(*args)
+    if len(_lowering_cache) > 4096:
+      _lowering_cache.clear()
+    _lowering_cache[k] = closed
+  (out,) = eval_jaxpr_compiled(closed.jaxpr, closed.consts, *args)
+  return out
+
+
 def _eval_via_lowering(prim, lf, args, params, out_avals):
   """Evaluate `prim` with its lowering function on physical values."""
   # Like `mlir.lower_fun`, `fun` sees the logical values; in XLA everything is
@@ -205,7 +235,20 @@ def _eval_via_lowering(prim, lf, args, params, out_avals):
   fun, multiple_results = lf
   # Trace like `lower_fun` does (so `fun` can use array methods on abstract
   # values of any dtype), then evaluate the jaxpr as compiled code would.
-  closed = api.make_jaxpr(lambda *xs: fun(*xs, **params))(*args)
+  # Cached per (prim, params, input types), as XLA compiles a lowering once.
+  try:
+    key = (prim, tuple(sorted(params.items())),
+           tuple(core.typeof(a) for a in args))
+    hash(key)
+  except TypeError:
+    key = None
+  closed = _lowering_cache.get(key) if key is not None else None
+  if closed is None:
+    closed = api.make_jaxpr(lambda *xs: fun(*xs, **params))(*args)
+    if key is not None:
+      if len(_lowering_cache) > 4096:
+        _lowering_cache.clear()
+      _lowering_cache[key] = closed
   out = eval_jaxpr_compiled(closed.jaxpr, closed.consts, *args)
   out = out if multiple_results else out[0]
   outs = list(out) if multiple_results else [out]
@@ -331,31 +374,71 @@ def eval_jaxpr_compiled(jaxpr, consts, *args) -> list[Any]:
   from shax.jax._src.lib.utils import foreach  # noqa: PLC0415
   _load()
 
+  # SHAX: values produced by first-order NumPy impls stay plain ndarrays in
+  # `env`, typed by their jaxpr variable's aval (what XLA's buffers are);
+  # they're wrapped as ArrayImpls only when something else reads them. That
+  # skips a per-op abstract_eval and ArrayImpl, most of a step's cost.
+  raw_vals: set = set()  # vars whose env value is a raw ndarray
+
   def read(v):
-    return v.val if isinstance(v, core.Literal) else env[v]
+    if isinstance(v, core.Literal):
+      return v.val
+    val = env[v]
+    if v in raw_vals:
+      val = env[v] = from_numpy(val, v.aval)
+      raw_vals.discard(v)
+    return val
+
+  def read_np(v):
+    return to_numpy(v.val if isinstance(v, core.Literal) else env[v])
+
+  checks = config.enable_checks.value
 
   def write(v, val):
-    if config.enable_checks.value:
+    if checks:
       assert core.typecheck(v.aval, val), (v.aval, core.typeof(val), val)
     env[v] = val
 
   env: dict = {}
   foreach(write, jaxpr.all_invars, [*consts, *args])
   lu = core.last_used(jaxpr)
+  eval_trace = isinstance(core.trace_ctx.trace, core.EvalTrace)
+  from shax.jax._src import pjit as pjit_lib  # noqa: PLC0415
   for eqn in jaxpr.eqns:
     prim = eqn.primitive
-    direct = (prim in _impls and prim not in _raw
-              and isinstance(core.trace_ctx.trace, core.EvalTrace))
+    fast = _fast_impl(prim)
+    direct = fast is not None and eval_trace
     name_stack = (source_info_util.current_name_stack()
                   + eqn.source_info.name_stack)
     with (source_info_util.user_context(eqn.source_info.traceback,
                                         name_stack=name_stack),
           eqn.ctx.manager):
-      if direct:  # no per-op nan/inf checks inside a jit (only its outputs)
+      if (prim is pjit_lib.jit_p and eval_trace
+          and not eqn.params["jaxpr"].effects):
+        # SHAX: a nested jit inside compiled code is inlined, as XLA does;
+        # dispatching it again (caches, fast path) would only add overhead.
+        inner = eqn.params["jaxpr"]
+        ans = eval_jaxpr_compiled(inner.jaxpr, inner.consts,
+                                  *map(read, eqn.invars))
+        foreach(write, eqn.outvars, ans)
+        core.clean_up_dead_vars(eqn, env, lu)
+        continue
+      if direct and _raw_eligible(eqn):
+        outs = _run_raw(fast, prim, list(map(read_np, eqn.invars)), eqn)
+        for v, o in zip(eqn.outvars, outs, strict=True):
+          env[v] = o
+          raw_vals.add(v)
+        core.clean_up_dead_vars(eqn, env, lu)
+        continue
+      if eval_trace and prim in _jit_impls:
+        ans = _jit_impls[prim](*map(read, eqn.invars), **eqn.params)
+      elif direct and prim in _impls:  # no per-op nan/inf checks inside a jit
         ans = _apply_impl(prim, *map(read, eqn.invars), **eqn.params)
-      elif (prim not in _impls and "impl" not in vars(prim)
+      elif (prim not in _impls and (eval_trace or "impl" not in vars(prim))
             and (lf := _lowered_fun(prim)) is not None):
-        # SHAX: no impl rule, but a `lower_fun` lowering (what XLA would run).
+        # SHAX: no NumPy impl, but a `lower_fun` lowering: that's what XLA
+        # runs, so compiled code uses it even if the primitive has a Python
+        # impl rule (which would dispatch eager ops, e.g. random_bits).
         in_vals = list(map(read, eqn.invars))
         out_avals = (eqn.out_avals if hasattr(eqn, "out_avals") else
                      [v.aval for v in eqn.outvars])
@@ -371,6 +454,65 @@ def eval_jaxpr_compiled(jaxpr, consts, *args) -> list[Any]:
       write(eqn.outvars[0], ans)
     core.clean_up_dead_vars(eqn, env, lu)
   return list(map(read, jaxpr.outvars))
+
+
+# Impls used only on the raw-ndarray path inside a jit (all operands plain
+# arrays): primitives whose eager dispatch must keep upstream's impl because
+# they also take other value types (e.g. add_any on float0 or keys).
+_raw_only_impls: dict = {}
+
+
+def _fast_impl(prim):
+  """The NumPy impl that compiled evaluation may call directly, if any."""
+  if prim in _raw:
+    return None
+  return _impls.get(prim) or _raw_only_impls.get(prim)
+
+
+_plain_cache: dict = {}
+
+
+def _plain_aval(aval) -> bool:
+  try:
+    return _plain_cache[aval]
+  except KeyError:
+    pass
+  except TypeError:  # unhashable aval
+    return _plain_aval_uncached(aval)
+  r = _plain_cache[aval] = _plain_aval_uncached(aval)
+  return r
+
+
+def _plain_aval_uncached(aval) -> bool:
+  from shax.jax._src import core, dtypes  # noqa: PLC0415
+  return (type(aval) is core.ShapedArray
+          and not dtypes.issubdtype(aval.dtype, dtypes.extended)
+          and aval.dtype != dtypes.float0
+          and getattr(aval, "memory_space", core.MemorySpace.Device)
+              == core.MemorySpace.Device)
+
+
+def _raw_eligible(eqn) -> bool:
+  """Can this eqn's NumPy impl run on/produce plain ndarrays?"""
+  return (all(_plain_aval(v.aval) for v in eqn.invars)
+          and all(_plain_aval(v.aval) for v in eqn.outvars))
+
+
+def _run_raw(impl, prim, np_args, eqn) -> list:
+  with np.errstate(all="ignore"):
+    out = impl(*np_args, **eqn.params)
+  outs = out if prim.multiple_results else [out]
+  res = []
+  for o, v in zip(outs, eqn.outvars, strict=True):
+    aval = v.aval
+    o = np.asarray(o)
+    if o.dtype != aval.dtype:
+      o = o.astype(aval.dtype)
+    if o.shape != aval.shape:
+      raise AssertionError(
+          f"shax backend produced shape {o.shape}, expected {aval.str_short()}")
+    res.append(o)
+  return res
 
 
 def evaluating_jit() -> bool:
