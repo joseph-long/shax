@@ -47,4 +47,19 @@ Notes:
   `scripts/jaxtest --target pyodide` uses.
 - The browser serves the export over HTTP; opening `index.html` from
   `file://` doesn't work (Pyodide fetches its files).
+- **Outputs on load (`--execute`)**: `export.sh OUT_DIR --execute` runs the
+  notebook natively at export time (in a uv sandbox, so `uv` must be on
+  PATH; shax runs there too) and embeds the outputs. In run mode they
+  appear within ~1 s, before Pyodide has loaded (~5 s, plus package
+  installs), and widgets still work: moving a slider re-runs the dependent
+  cells in the browser. Without `--execute`, outputs appear only after the
+  browser has run every cell (~12 s). Don't use `--execute` exports with
+  `check-wasm-export.py`: the embedded `#shax-result` is there before any
+  in-browser code runs, so the check proves nothing.
+- `--mode edit` exports work (editable code in the browser), but marimo
+  doesn't run their cells on load, even with `[tool.marimo.runtime]
+  auto_instantiate = true` in the script header: the user clicks run
+  (bottom right). With `--execute` they show the embedded outputs, but the
+  cells stay stale, so moving a slider changes nothing until the reader
+  clicks run. Checked 2026-11-18 in headless Chromium (marimo 0.25.1).
 - SciPy isn't needed: shax only loads it lazily for a few special functions.
