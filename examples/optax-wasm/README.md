@@ -20,17 +20,22 @@ at `../../dist/`; marimo's export copies them into `public/wheels/`.
 ## Build, export, check
 
 ```
-packaging/build-wheels.sh                     # -> dist/
 pip install "marimo==0.25.2" playwright       # in some venv; then:
 playwright install chromium                   # the offline export resolves packages in a headless browser
-marimo export html-wasm examples/optax-wasm/notebook.py -o /tmp/optax-wasm --mode run --show-code --offline
+examples/optax-wasm/export.sh /tmp/optax-wasm # builds dist/ if needed, then exports
 python scripts/check-wasm-export.py /tmp/optax-wasm --screenshot /tmp/optax-wasm.png
 python -m http.server --directory /tmp/optax-wasm   # to try it yourself
 ```
 
+`export.sh` runs `marimo export html-wasm notebook.py --mode run --show-code
+--offline`. Run mode hides code cells unless `--show-code` is given, so the
+export would show only prose and widgets; the check script fails if no code
+cells are visible (`--allow-no-code` to skip that).
+
 `check-wasm-export.py` serves the export on localhost, loads it in headless
 Chromium with all non-localhost requests blocked, and waits for the
-notebook's `#shax-result` element (final loss in `data-loss`). As of
+notebook's `#shax-result` element (final loss in `data-loss`), and counts
+the visible code cells. As of
 2026-11-17 (marimo 0.25.2, Pyodide 314.0.0) it renders in ~12 s with loss
 0.009453, the same as running the notebook natively. The export is ~55 MB
 (Pyodide runtime, numpy, ml_dtypes, marimo and its deps, optax, absl-py,

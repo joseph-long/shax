@@ -5,9 +5,10 @@
 
 Serves <export-dir> on localhost, opens it in headless Chromium (Playwright)
 with every non-localhost request blocked, and waits for `--selector` to
-appear in the page. Prints its attributes, any blocked requests and browser
-console errors. Exit status 0 only if the element appeared and nothing tried
-to reach the network.
+appear in the page. Prints its attributes, how many code cells are visible,
+any blocked requests and browser console errors. Exit status 0 only if the
+element appeared, code cells are visible (unless --allow-no-code; exports need
+`--show-code` for that) and nothing tried to reach the network.
 
 Needs `playwright` and a Chromium (`playwright install chromium`; set
 PLAYWRIGHT_BROWSERS_PATH if it lives elsewhere). See examples/optax-wasm.
@@ -40,6 +41,8 @@ def main() -> int:
   ap.add_argument("--selector", default="#shax-result")
   ap.add_argument("--timeout", type=float, default=600, help="seconds")
   ap.add_argument("--screenshot", help="save a full-page PNG here when done")
+  ap.add_argument("--allow-no-code", action="store_true",
+                  help="don't fail when no code cells are visible")
   a = ap.parse_args()
 
   from playwright.sync_api import sync_playwright  # noqa: PLC0415
@@ -64,13 +67,16 @@ def main() -> int:
     page.on("pageerror", lambda e: console_errors.append(f"pageerror: {e}"))
     page.goto(url)
     found = None
+    n_code = 0
     try:
       el = page.wait_for_selector(a.selector, timeout=a.timeout * 1000,
                                   state="attached")
       found = el.evaluate(
           "e => Object.fromEntries([...e.attributes].map(x => [x.name, x.value]))")
+      page.wait_for_timeout(1500)  # let the remaining outputs paint
+      # Visible CodeMirror editors: marimo renders each shown code cell as one.
+      n_code = page.locator(".cm-editor:visible").count()
       if a.screenshot:
-        page.wait_for_timeout(1500)  # let the remaining outputs paint
         page.screenshot(path=a.screenshot, full_page=True)
     except Exception as e:  # noqa: BLE001
       print(f"selector {a.selector!r} not found: {type(e).__name__}")
@@ -82,11 +88,15 @@ def main() -> int:
   print(f"elapsed: {time.monotonic() - t0:.1f}s")
   if found is not None:
     print(f"found {a.selector}: {found}")
+    print(f"visible code cells: {n_code}")
+    if not n_code and not a.allow_no_code:
+      print("NO CODE CELLS VISIBLE (export with --show-code, or pass --allow-no-code)")
   for u in blocked:
     print(f"BLOCKED (tried the network): {u}")
   for m in console_errors[:20]:
     print(f"console error: {m}")
-  return 0 if found is not None and not blocked else 1
+  code_ok = n_code > 0 or a.allow_no_code
+  return 0 if found is not None and code_ok and not blocked else 1
 
 
 if __name__ == "__main__":
