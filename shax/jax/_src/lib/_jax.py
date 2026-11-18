@@ -537,13 +537,77 @@ def buffer_to_dlpack_managed_tensor(buffer, stream=None, max_version=None,
   """
   del stream
   arr = buffer._value
+  code = _DL_EXTRA_CODES.get(arr.dtype)
+  if code is not None:
+    # NumPy can't export ml_dtypes types; export the same bits as unsigned
+    # ints and retag the DLTensor's dtype code, as jaxlib exports them.
+    arr = arr.view(f"u{arr.dtype.itemsize}")
   if max_version is not None and tuple(max_version)[:1] >= (1,):
-    return arr.__dlpack__(max_version=tuple(max_version),
-                          copy=True if copied else None)
-  return np.array(arr, copy=True).__dlpack__()
+    capsule = arr.__dlpack__(max_version=tuple(max_version),
+                             copy=True if copied else None)
+  else:
+    capsule = np.array(arr, copy=True).__dlpack__()
+  if code is not None:
+    _dl_dtype(capsule).code = code
+  return capsule
 
 
 _CPU_MIN_ALIGN = 16  # xla::cpu::MinAlign()
+
+
+# DLPack dtype codes NumPy doesn't know (dlpack.h DLDataTypeCode), for the
+# ml_dtypes types jaxlib exchanges. The capsule structs are read with ctypes.
+_KDL_UINT = 1
+_DL_EXTRA_CODES: dict = {}
+_DL_EXTRA_DTYPES: dict = {}
+try:
+  import ctypes as _ctypes
+  import ml_dtypes as _ml_dtypes
+  for _name, _code in (("bfloat16", 4), ("float8_e3m4", 7),
+                       ("float8_e4m3", 8), ("float8_e4m3b11fnuz", 9),
+                       ("float8_e4m3fn", 10), ("float8_e4m3fnuz", 11),
+                       ("float8_e5m2", 12), ("float8_e5m2fnuz", 13),
+                       ("float8_e8m0fnu", 14)):
+    if hasattr(_ml_dtypes, _name):
+      _dt = np.dtype(getattr(_ml_dtypes, _name))
+      _DL_EXTRA_CODES[_dt] = _code
+      _DL_EXTRA_DTYPES[(_code, _dt.itemsize * 8)] = _dt
+
+  class _DLDataType(_ctypes.Structure):
+    _fields_ = [("code", _ctypes.c_uint8), ("bits", _ctypes.c_uint8),
+                ("lanes", _ctypes.c_uint16)]
+
+  class _DLTensor(_ctypes.Structure):
+    _fields_ = [("data", _ctypes.c_void_p), ("device_type", _ctypes.c_int32),
+                ("device_id", _ctypes.c_int32), ("ndim", _ctypes.c_int32),
+                ("dtype", _DLDataType)]  # (shape, strides, byte_offset follow)
+
+  class _DLManagedTensorVersioned(_ctypes.Structure):
+    _fields_ = [("major", _ctypes.c_uint32), ("minor", _ctypes.c_uint32),
+                ("manager_ctx", _ctypes.c_void_p),
+                ("deleter", _ctypes.c_void_p), ("flags", _ctypes.c_uint64),
+                ("dl_tensor", _DLTensor)]
+
+  _get_name = _ctypes.pythonapi.PyCapsule_GetName
+  _get_name.restype = _ctypes.c_char_p
+  _get_name.argtypes = [_ctypes.py_object]
+  _get_pointer = _ctypes.pythonapi.PyCapsule_GetPointer
+  _get_pointer.restype = _ctypes.c_void_p
+  _get_pointer.argtypes = [_ctypes.py_object, _ctypes.c_char_p]
+except Exception:  # no ctypes (or ml_dtypes): NumPy's dtypes only
+  _DL_EXTRA_CODES.clear()
+  _DL_EXTRA_DTYPES.clear()
+
+
+def _dl_dtype(capsule):
+  """The DLDataType inside an unconsumed DLPack capsule (writable)."""
+  name = _get_name(capsule)
+  ptr = _get_pointer(capsule, name)
+  if name == b"dltensor_versioned":
+    return _DLManagedTensorVersioned.from_address(ptr).dl_tensor.dtype
+  if name == b"dltensor":
+    return _DLTensor.from_address(ptr).dtype  # DLManagedTensor starts with it
+  raise BufferError(f"not an unconsumed DLPack capsule: {name!r}")
 
 
 class _Capsule:
@@ -570,7 +634,14 @@ def dlpack_managed_tensor_to_buffer(tensor, device, stream=None, copy=None,
   from shax.jax._src import core  # noqa: PLC0415
   from shax.jax._src.lib import xla_client  # noqa: PLC0415
   from shax.jax._src.lib._array import ArrayImpl  # noqa: PLC0415
+  dl_dtype = _dl_dtype(tensor) if _DL_EXTRA_DTYPES else None
+  extra = None if dl_dtype is None else _DL_EXTRA_DTYPES.get(
+      (dl_dtype.code, dl_dtype.bits))
+  if extra is not None:
+    dl_dtype.code = _KDL_UINT  # NumPy imports the bits; reinterpret below
   view = np.from_dlpack(_Capsule(tensor))
+  if extra is not None:
+    view = view.view(extra)
   ptr = view.ctypes.data
   if copy is not None and not copy and view.size and ptr % _CPU_MIN_ALIGN:
     raise JaxRuntimeError(

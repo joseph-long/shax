@@ -303,6 +303,9 @@ masked) and chex assertions match real JAX on CPU.
     on compiling `jit(shard_map(prim))`. Collectives over size-1 axes
     (`collectives.py`) override upstream impls only inside that body.
     Outside it, the upstream "must be under shard_map" errors stand.
+    Body arguments lose their mesh sharding (`collectives._unmeshed`): a
+    value sharded on an Explicit mesh (e.g. a remat residual) can't enter
+    the manual-mesh body, and on a size-1 mesh the shard is the value.
   - Result conventions, as in jax's result handlers: float0 outputs are
     `TypedNdArray` zeros, not device arrays. Tokens are `core.Token` around
     a placeholder buffer (`new_token()`), which refuses NumPy conversion.
@@ -343,7 +346,9 @@ masked) and chex assertions match real JAX on CPU.
   device: `batched_device_put`, the jit fast path, eager primitives),
   the array GC guard (`ArrayImpl.__del__` during a gc pass), creation
   tracebacks on arrays/executables, the buffer protocol (`__buffer__`),
-  DLPack via NumPy (ml_dtypes types like bfloat16 can't be exported), FFI
+  DLPack via NumPy (ml_dtypes types such as bfloat16/float8 travel as
+  same-width uints, with the capsule's DLDataType code retagged via ctypes
+  as jaxlib tags them; `_jax._dl_dtype`), FFI
   `Buffer`s for `buffer_callback`, and jaxlib's `safe_map`/`safe_zip` errors.
 - **Pallas** (`jax.experimental.pallas`) is ported; `interpret=True`
   kernels run (the CPU lowering's HLO interpreter, via `register_jit_impl`).
@@ -387,6 +392,16 @@ masked) and chex assertions match real JAX on CPU.
      ["pyodide"]` in skips.toml).
    Phases 2–4 below were largely absorbed into `core`; the remaining work is
    the out-of-core files.
+   - `extended` (74 in-scope files outside core, incl. `roofline`, `sparse`,
+     `key_reuse`, `hijax`, `mutable_array`, `api_test`-adjacent files):
+     4159 passed / 0 failed / 806 skipped (2026-11-18).
+   - Not in a subset on purpose: `documentation_coverage_test` and
+     `package_structure_test` walk packages by `jax.__name__` (`shax.jax`
+     under shax), so they test package identity, not behaviour. A direct
+     `dir()` diff of every public module vs real JAX shows the stable API
+     (jax, numpy, lax, nn, random, scipy, tree_util, ...) complete; gaps are
+     GPU/TPU/Mosaic experimental modules and `jnp.int1`/`uint1` (ml_dtypes
+     0.5.4, as in Pyodide, predates them; upstream gates them on it).
 2. `numpy` subset; immutable Array + `.at[]` scatter/gather.
 3. Transformations: jvp/linearize/vjp/grad, vmap, control flow, custom_jvp/vjp
    (`api_test`, `lax_autodiff_test`, `lax_control_flow_test`, `custom_api_test`).

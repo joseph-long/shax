@@ -46,9 +46,30 @@ def eval_body(trace, jaxpr, consts, args):
   """
   # The body's vars carry manual-axis (vma) types; the global values don't,
   # so eval_jaxpr's enable_checks typecheck doesn't apply here.
+  args = [_unmeshed(a) for a in args]
   with (_body_context(), core.set_current_trace(trace),
         config.enable_checks(False)):
     return core.eval_jaxpr(jaxpr, consts, *args)
+
+
+def _unmeshed(x):
+  """`x` without its mesh sharding: on a size-1 mesh the shard is the value.
+
+  Values sharded on an Explicit mesh can't enter the manual-mesh body
+  ("Closing over inputs to shard_map ... `Explicit` axes"); the shard each
+  device sees has no mesh type.
+  """
+  from shax.jax._src.lib._array import ArrayImpl  # noqa: PLC0415
+  from shax.jax._src.lib import xla_client  # noqa: PLC0415
+  if not isinstance(x, ArrayImpl):
+    return x
+  aval = x.aval
+  if not isinstance(aval, core.ShapedArray) or aval.sharding.mesh.empty:
+    return x
+  return ArrayImpl(
+      core.ShapedArray(aval.shape, aval.dtype, weak_type=aval.weak_type),
+      xla_client.SingleDeviceSharding(x.sharding._device_assignment[0]),
+      list(x._arrays), committed=x.committed)
 
 
 def _override(prim, size1_impl):

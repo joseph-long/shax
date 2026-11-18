@@ -254,6 +254,46 @@ reason = "autodidax builds StableHLO with jax.extend.mlir and compiles it with X
 
 # --- Pyodide (WASM) only: limits of the platform, not shax bugs
 [[skip]]
+nodeid = "tests/array_test.py::JaxArrayTest::test_array_copy_to_host_async_concurrent"
+exact = true
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/string_array_test.py::StringArrayTest::test_string_array_copy_to_host_concurrent"
+exact = true
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/transfer_guard_test.py::TransferGuardTest::test_concurrent_global_state_tsan_race"
+exact = true
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/util_test.py::UtilTest::test_multi_weakref_lru_cache_threads"
+exact = true
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/x64_context_test.py::X64ContextTests::test_thread_safety"
+exact = true
+targets = ["pyodide"]
+reason = "needs threads (WASM has none)"
+[[skip]]
+nodeid = "tests/logging_test.py::LoggingTest::test_no_log_spam"
+exact = true
+targets = ["pyodide"]
+reason = "runs sys.executable in a subprocess (WASM has none)"
+[[skip]]
+nodeid = "tests/logging_test.py::LoggingTest::test_subprocess_stderr_info_logging"
+exact = true
+targets = ["pyodide"]
+reason = "runs sys.executable in a subprocess (WASM has none)"
+[[skip]]
+nodeid = "tests/roofline_test.py::RooflineTest::test_conv_general_dilated_flops_very_large_input"
+exact = true
+targets = ["pyodide"]
+reason = "upstream np.prod of Python ints is int32 on wasm32 and overflows"
+[[skip]]
 nodeid = "tests/api_test.py::APITest::test_cache_miss_explanations_are_thread_safe"
 targets = ["pyodide"]
 reason = "needs threads (WASM has none)"
@@ -596,3 +636,45 @@ reason = "runs `import jax` in a fresh subprocess, which the harness's aliasing 
 nodeid = "tests/logging_test.py::LoggingTest::test_subprocess_toggling_logging_level"
 exact = true
 reason = "runs `import jax` in a fresh subprocess, which the harness's aliasing can't reach"
+
+# --- needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)
+[[skip]]
+nodeid = "tests/fused_test.py::FusedTest::test_basic"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/metadata_test.py::MetadataTest::test_argmax"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/metadata_test.py::MetadataTest::test_cond_metadata"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/metadata_test.py::MetadataTest::test_grad_jit_metadata"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/metadata_test.py::MetadataTest::test_jit_metadata"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/scheduling_groups_test.py::SchedulingGroupsTest::test_basic"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/scheduling_groups_test.py::SchedulingGroupsTest::test_xla_metadata_call_deduplication"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/scheduling_groups_test.py::SchedulingGroupsTest::test_xla_metadata_call_deduplication_consts_and_detached"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/scheduling_groups_test.py::SchedulingGroupsTest::test_xla_metadata_call_deduplication_remat"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/scheduling_groups_test.py::SchedulingGroupsTest::test_xla_metadata_call_inlineable"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"

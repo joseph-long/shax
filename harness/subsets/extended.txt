@@ -1,7 +1,7 @@
 # In-scope files outside `core` (single device, no export/HLO/XLA internals).
 # Run `--target jax-ported` first: some need things only real XLA has.
-tests/aot_test.py
 tests/ann_test.py
+tests/aot_test.py
 tests/api_util_test.py
 tests/array_api_test.py
 tests/array_extensibility_test.py
@@ -10,6 +10,7 @@ tests/array_test.py
 tests/blocked_sampler_test.py
 tests/buffer_callback_test.py
 tests/cholesky_update_test.py
+tests/clear_backends_test.py
 tests/config_test.py
 tests/core_test.py
 tests/custom_linear_solve_test.py
@@ -25,8 +26,10 @@ tests/error_check_test.py
 tests/errors_test.py
 tests/experimental_rnn_test.py
 tests/extend_test.py
+tests/fused_test.py
 tests/garbage_collection_guard_test.py
 tests/generated_fun_test.py
+tests/hardware_utils_test.py
 tests/hijax_test.py
 tests/hypothesis_test_util_test.py
 tests/jax_jit_test.py
@@ -42,13 +45,17 @@ tests/lazy_loader_test.py
 tests/lobpcg_test.py
 tests/logging_test.py
 tests/lru_cache_test.py
+tests/metadata_test.py
 tests/monitoring_test.py
+tests/multibackend_test.py
 tests/mutable_array_test.py
 tests/name_stack_test.py
 tests/pickle_test.py
 tests/pretty_printer_test.py
 tests/qdwh_test.py
 tests/random_impl_test.py
+tests/roofline_test.py
+tests/scheduling_groups_test.py
 tests/scipy_interpolate_test.py
 tests/scipy_spatial_test.py
 tests/source_info_test.py
@@ -59,8 +66,8 @@ tests/stack_test.py
 tests/stateful_rng_test.py
 tests/string_array_test.py
 tests/svd_test.py
-tests/transfer_guard_test.py
 tests/traceback_test.py
+tests/transfer_guard_test.py
 tests/typing_test.py
 tests/unary_ops_accuracy_test.py
 tests/util_test.py
