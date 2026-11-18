@@ -58,6 +58,8 @@ tests/roofline_test.py
 tests/scheduling_groups_test.py
 tests/scipy_interpolate_test.py
 tests/scipy_spatial_test.py
+# Only the symbolic-dimension algebra; the rest of the file is jax.export.
+tests/shape_poly_test.py::DimExprTest
 tests/source_info_test.py
 tests/sparse_bcoo_bcsr_test.py
 tests/sparse_test.py

@@ -51,7 +51,7 @@ tests/roofline_test.py
 tests/scaled_dot_test.py
 tests/scaled_matmul_stablehlo_test.py
 tests/scheduling_groups_test.py
-tests/shape_poly_test.py
+tests/shape_poly_test.py  # except DimExprTest, in extended.txt
 tests/shard_map_test.py
 tests/source_mapper_test.py
 tests/sourcemap_test.py

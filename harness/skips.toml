@@ -576,6 +576,10 @@ reason = "needs jax.export (serialized StableHLO)"
 nodeid = "tests/error_check_test.py::ErrorCheckTests::test_error_check_aot_should_not_override_existing_error"
 exact = true
 reason = "needs jax.export (serialized StableHLO)"
+[[skip]]
+nodeid = "tests/shape_poly_test.py::DimExprTest::test_constraints_eq_bug_23437"
+exact = true
+reason = "needs jax.export (serialized StableHLO)"
 
 # --- needs XLA's sharding protos (OpSharding/HloSharding)
 [[skip]]
