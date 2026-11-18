@@ -395,6 +395,7 @@ masked) and chex assertions match real JAX on CPU.
    - `extended` (74 in-scope files outside core, incl. `roofline`, `sparse`,
      `key_reuse`, `hijax`, `mutable_array`, `api_test`-adjacent files):
      4159 passed / 0 failed / 806 skipped (2026-11-18).
+     `--x64`: 4350 / 0 / 784; `--slow`: 4207 / 0 / 758. Pyodide: 4128 / 0 / 824.
    - Not in a subset on purpose: `documentation_coverage_test` and
      `package_structure_test` walk packages by `jax.__name__` (`shax.jax`
      under shax), so they test package identity, not behaviour. A direct
