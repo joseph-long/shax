@@ -328,7 +328,29 @@ masked) and chex assertions match real JAX on CPU.
   a large extra download.
 - **XLA quirks worth matching:** a bool holding a non-0/1 byte converts to
   unsigned <=8-bit types by keeping the byte (masked), which `arr.view()`
-  relies on; to anything else it converts to 0/1.
+  relies on; to anything else it converts to 0/1. XLA:CPU flushes float
+  denormals in arithmetic (`_ftz`), including scatter-add/sub/mul combiners
+  (only the touched elements).
+- **jaxlib C++ is invisible in tracebacks:** `traceback_util` excludes the
+  whole `lib/` and `shax_backend/` directories, and `PjitFunction.__call__`
+  strips `lib/` frames from exceptions passing through it (jaxlib's C++ call
+  adds none; errors_test checks the filtered frames).
+- **Loggers keep upstream names:** ported modules log to
+  `logging.getLogger(__name__.removeprefix("shax."))` (a port rule), so
+  `jax_debug_log_modules` and handlers on the `jax` logger work.
+- **jaxlib behaviours emulated in `lib/`:** transfer guards
+  (`_jax.apply_transfer_guard`, checked where host values are put on the
+  device: `batched_device_put`, the jit fast path, eager primitives),
+  the array GC guard (`ArrayImpl.__del__` during a gc pass), creation
+  tracebacks on arrays/executables, the buffer protocol (`__buffer__`),
+  DLPack via NumPy (ml_dtypes types like bfloat16 can't be exported), FFI
+  `Buffer`s for `buffer_callback`, and jaxlib's `safe_map`/`safe_zip` errors.
+- **Pallas** (`jax.experimental.pallas`) is ported; `interpret=True`
+  kernels run (the CPU lowering's HLO interpreter, via `register_jit_impl`).
+  Mosaic/Triton lowering is unavailable, as on CPU JAX.
+- **Eager higher-order primitives with Ref arguments** (e.g. `scan` over a
+  `new_ref`) run as a jit, as upstream's dispatch does, so Ref writes are
+  discharged and written back.
 - **Debugging tip:** set `JAX_TRACEBACK_FILTERING=off`, or JAX hides shax's
   internal frames from tracebacks.
 - **Can't support** (skipped in `harness/skips.toml`, with reasons):

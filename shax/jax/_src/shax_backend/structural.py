@@ -359,7 +359,7 @@ def _scatter_targets(operand_shape, indices, updates, dn, mode):
 
 def _scatter_impl(ufunc_at, operand, indices, updates, *, update_jaxpr,
                   update_consts, dimension_numbers, indices_are_sorted,
-                  unique_indices, mode):
+                  unique_indices, mode, ftz=False):
   out = np.array(operand, copy=True, order="C")
   flat_idx, vals = _scatter_targets(out.shape, indices, updates,
                                     dimension_numbers, mode)
@@ -371,25 +371,32 @@ def _scatter_impl(ufunc_at, operand, indices, updates, *, update_jaxpr,
     flat[flat_idx] = vals
     return out
   cdt = _compute_dtype(flat[:0]).dtype
-  if cdt != flat.dtype:
-    tmp = flat.astype(cdt)
-    ufunc_at(tmp, flat_idx, vals.astype(cdt))
+  tmp = flat.astype(cdt) if cdt != flat.dtype else flat
+  vals = vals.astype(cdt) if cdt != flat.dtype else vals
+  if ftz:
+    # The combiner is XLA:CPU arithmetic: denormal inputs and results are
+    # flushed to zero (elements no update touches are only copied).
+    from shax.jax._src.shax_backend.elementwise import _ftz  # noqa: PLC0415
+    vals = _ftz(vals)
+    tmp[flat_idx] = _ftz(tmp[flat_idx])
+  ufunc_at(tmp, flat_idx, vals)
+  if ftz:
+    tmp[flat_idx] = _ftz(tmp[flat_idx])
+  if tmp is not flat:
     flat[...] = tmp.astype(out.dtype)
-  else:
-    ufunc_at(flat, flat_idx, vals)
   return out
 
 
-def _make_scatter(ufunc):
+def _make_scatter(ufunc, ftz=False):
   def impl(operand, indices, updates, **params):
     return _scatter_impl(None if ufunc is None else ufunc.at,
-                         operand, indices, updates, **params)
+                         operand, indices, updates, ftz=ftz, **params)
   return impl
 
 
-register(slicing.scatter_add_p)(_make_scatter(np.add))
-register(slicing.scatter_sub_p)(_make_scatter(np.subtract))
-register(slicing.scatter_mul_p)(_make_scatter(np.multiply))
+register(slicing.scatter_add_p)(_make_scatter(np.add, ftz=True))
+register(slicing.scatter_sub_p)(_make_scatter(np.subtract, ftz=True))
+register(slicing.scatter_mul_p)(_make_scatter(np.multiply, ftz=True))
 register(slicing.scatter_min_p)(_make_scatter(np.minimum))
 register(slicing.scatter_max_p)(_make_scatter(np.maximum))
 

@@ -21,7 +21,7 @@ import pathlib
 
 __all__ = ["Path"]
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 epath_installed: bool
 

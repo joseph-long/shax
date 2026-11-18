@@ -97,7 +97,7 @@ traceback_util.register_exclusion(__file__)
 
 CompileOptions = xc.CompileOptions
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 
 def _add_disabled_hlo_pass(disabled_passes: str, pass_name: str) -> str:

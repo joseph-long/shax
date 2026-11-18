@@ -60,7 +60,7 @@ map = safe_map
 zip = safe_zip
 def identity(x): return x
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 ### Policies
 

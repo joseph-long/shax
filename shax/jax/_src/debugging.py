@@ -55,7 +55,7 @@ from shax.jax._src.sharding_impls import (
     NamedSharding, PartitionSpec as P, parse_flatten_op_sharding)
 from shax.jax._src.state import discharge as state_discharge
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 class DebugEffect(effects.Effect):
   __str__ = lambda self: "Debug"

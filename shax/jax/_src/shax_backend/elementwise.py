@@ -29,14 +29,22 @@ _TINY = {"float32": np.finfo(np.float32).tiny, "bfloat16": np.finfo(np.float32).
          "complex128": np.finfo(np.float64).tiny}
 
 
+_TINY_BY_DTYPE = {np.dtype(k): v for k, v in _TINY.items()}
+_BF16 = np.dtype("bfloat16")
+_dtype_sets: dict = {}
+
+
 def _ftz(a, dtypes_=_FTZ_DTYPES):
   """Flush denormals to (signed) zero, as XLA:CPU does (FTZ + DAZ)."""
   a = np.asarray(a)
-  name = a.dtype.name
-  if name not in dtypes_:
+  dt = a.dtype
+  allowed = _dtype_sets.get(dtypes_)
+  if allowed is None:  # (dtype objects: dtype.name is slow on this hot path)
+    allowed = _dtype_sets[dtypes_] = frozenset(map(np.dtype, dtypes_))
+  if dt not in allowed:
     return a
-  tiny = _TINY[name]
-  if a.dtype.kind == "c":
+  tiny = _TINY_BY_DTYPE[dt]
+  if dt.kind == "c":
     re, im = a.real, a.imag
     if not (np.any((np.abs(re) < tiny) & (re != 0))
             or np.any((np.abs(im) < tiny) & (im != 0))):
@@ -46,7 +54,7 @@ def _ftz(a, dtypes_=_FTZ_DTYPES):
     out = np.empty(a.shape, a.dtype)
     out.real, out.imag = re, im
     return out
-  w = a.astype(np.float32) if name == "bfloat16" else a
+  w = a.astype(np.float32) if dt == _BF16 else a
   small = np.abs(w) < tiny  # includes zeros, which need no flushing
   if not np.any(small & (w != 0)):
     return a

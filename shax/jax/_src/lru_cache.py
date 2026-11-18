@@ -32,7 +32,7 @@ except ImportError:
 from shax.jax._src import path as pathlib
 from shax.jax._src.compilation_cache_interface import CacheInterface
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 
 _CACHE_SUFFIX = "-cache"

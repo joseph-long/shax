@@ -35,7 +35,7 @@ from shax.jax._src.typing import Array, ArrayLike, DTypeLike
 from shax.jax._src.sharding import Sharding
 from shax.jax._src.sharding_impls import NamedSharding, PartitionSpec as P
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 export = util.set_module('jax.numpy')
 

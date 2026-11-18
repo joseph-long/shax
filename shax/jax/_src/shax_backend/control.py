@@ -20,6 +20,7 @@ import math
 import numpy as np
 
 from shax.jax._src import core
+from shax.jax._src import dispatch
 from shax.jax._src import dtypes
 from shax.jax._src import earray
 from shax.jax._src import effects
@@ -35,7 +36,9 @@ from shax.jax._src.random import threefry4x32 as _tf4
 from shax.jax._src.random import philox2x32 as _ph2
 from shax.jax._src.random import philox4x32 as _ph4
 from shax.jax._src import callback as callback_lib
+from shax.jax._src import compute_on as compute_on_lib
 from shax.jax._src import ffi
+from shax.jax._src import xla_metadata as xla_metadata_lib
 from shax.jax._src.state import primitives as state_primitives
 from shax.jax._src.state import discharge as state_discharge
 from shax.jax._src.shax_backend import (
@@ -87,6 +90,25 @@ def _cond(index, *args, branches, **_):
   i = int(np.asarray(to_numpy(index)))
   i = min(max(i, 0), len(branches) - 1)
   return _compiled_fun(branches[i])(*args)
+
+
+@register(xla_metadata_lib.xla_metadata_call_p, raw=True)
+def _xla_metadata_call(*args, jaxpr, **_):
+  # The metadata only annotates the HLO; run the body.
+  return _compiled_fun(jaxpr)(*args)
+
+
+@register(compute_on_lib.compute_on_p, raw=True)
+def _compute_on(*args, jaxpr, out_memory_spaces, **_):
+  # shax computes everything on its one CPU device; outputs land in the
+  # requested memory spaces (by their avals).
+  if dispatch.jaxpr_has_primitive(jaxpr, "compute_on"):
+    raise ValueError("Nesting `compute_on` with different compute types is "
+                     "not allowed.")
+  outs = _compiled_fun(jaxpr)(*args)
+  return [_wrap(_phys(o), a.update(memory_space=s))
+          if isinstance(a, core.ShapedArray) else o
+          for o, a, s in zip(outs, jaxpr.out_avals, out_memory_spaces)]
 
 
 @register(conditionals.platform_index_p)
@@ -281,7 +303,11 @@ def _iota_2x32_shape(*, shape):
 
 @register(random_core.random_clone_p, raw=True)
 def _random_clone(x):
-  return x
+  # A new array (as the jit jax runs eagerly would return), same contents.
+  aval = core.typeof(x)
+  if _is_key_aval(aval):
+    return ext_wrap(_phys(x), aval)
+  return from_numpy(_phys(x), aval) if isinstance(aval, core.ShapedArray) else x
 
 
 # ---------------------------------------------------------------------------

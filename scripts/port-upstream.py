@@ -53,6 +53,10 @@ _RULES = [
      lambda m: f"{m.group(1)}from shax._vendor import opt_einsum"),
     (re.compile(r"^(\s*)from opt_einsum(\.[\w.]+)? import ", re.M),
      lambda m: f"{m.group(1)}from shax._vendor.opt_einsum{m.group(2) or ''} import "),
+    # Loggers keep upstream's names ("jax._src.dispatch"), so JAX's logging
+    # config (jax_debug_log_modules) and users' "jax" handlers see them.
+    (re.compile(r"logging\.getLogger\(__name__\)"),
+     lambda m: 'logging.getLogger(__name__.removeprefix("shax."))'),
 ]
 
 

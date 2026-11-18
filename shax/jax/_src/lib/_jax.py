@@ -7,6 +7,8 @@ import types
 import weakref
 from typing import Any, Generic, TypeVar
 
+import numpy as np
+
 _T = TypeVar("_T")
 
 
@@ -128,6 +130,40 @@ def _thread_local_guard_state() -> _GuardState:
   if s is None:
     s = _guard_tls.state = _GuardState()
   return s
+
+
+def _transfer_guard_action(kind: str) -> TransferGuardLevel:
+  """guard_lib.cc GetTransferGuardAction*: ALLOW, LOG or DISALLOW."""
+  tls = _thread_local_guard_state()
+  level = getattr(tls, kind)
+  if level is None:
+    level = getattr(_guard_global, kind)
+  if level is None or level is TransferGuardLevel.ALLOW:
+    return TransferGuardLevel.ALLOW
+  explicit = (tls.explicit_device_get if kind == "device_to_host"
+              else tls.explicit_device_put)
+  if level is TransferGuardLevel.LOG:
+    return TransferGuardLevel.ALLOW if explicit else TransferGuardLevel.LOG
+  if level is TransferGuardLevel.DISALLOW:
+    return TransferGuardLevel.ALLOW if explicit else TransferGuardLevel.DISALLOW
+  if level is TransferGuardLevel.LOG_EXPLICIT:
+    return TransferGuardLevel.LOG
+  return TransferGuardLevel.DISALLOW
+
+
+def apply_transfer_guard(kind: str, formatter=lambda: "") -> None:
+  """guard_lib.cc ApplyTransferGuardTo{HostToDevice,...}: log or raise."""
+  action = _transfer_guard_action(kind)
+  if action is TransferGuardLevel.ALLOW:
+    return
+  what = kind.replace("_", "-")
+  if action is TransferGuardLevel.LOG:
+    import logging  # noqa: PLC0415
+    logging.getLogger("jax._src.lib").warning(
+        "%s transfer: %s", what, formatter())
+    return
+  raise JaxRuntimeError(
+      f"INVALID_ARGUMENT: Disallowed {what} transfer: {formatter()}")
 
 
 guard_lib = types.SimpleNamespace(
@@ -381,13 +417,21 @@ def set_pspec_unconstrained(value) -> None:
 
 
 def canonicalize_partition(partition):
-  if isinstance(partition, list):
-    partition = tuple(partition)
-  if isinstance(partition, tuple):
-    if len(partition) == 0:
-      return None
+  """Port of partition_spec.cc CanonicalizePartition."""
+  if not partition:
+    return None
+  if partition is _pspec_unconstrained:
+    return partition
+  is_tuple = isinstance(partition, tuple)
+  if is_tuple or isinstance(partition, list):
+    for p in partition:
+      if isinstance(p, (tuple, list)):
+        raise ValueError(
+            "A tuple inside PartitionSpec cannot contain a nested tuple. Got "
+            f"partition: {partition} and the nested tuple: {p}")
     if len(partition) == 1:
       return partition[0]
+    return partition if is_tuple else tuple(partition)
   return partition
 
 
@@ -471,16 +515,71 @@ from shax.jax._src.lib._pjit import (  # noqa: E402
 from shax.jax._src.lib import _pjit as _pjit_mod  # noqa: E402
 jax_jit.ArgumentSignature = _pjit_mod.ArgumentSignature
 jax_jit.parse_arguments = _pjit_mod.parse_arguments
+jax_jit._ArgSignatureOfValue = _pjit_mod.arg_signature_of_value
+jax_jit.PyArgSignature = _pjit_mod.PyArgSignature
 ResultHandler = object  # only used in type annotations
 
 
 # --- misc names jaxlib exposes on _jax -----------------------------------------
 from shax.jax._src.lib.xla_client import Device, Memory  # noqa: E402
 
-# DLPack: TODO(shax) -- NumPy implements __dlpack__, so this could be supported.
+# DLPack, through NumPy's own DLPack support (CPU only, like shax).
 dlpack_version = (1, 3)
-buffer_to_dlpack_managed_tensor = _u.function("_jax.buffer_to_dlpack_managed_tensor")
-dlpack_managed_tensor_to_buffer = _u.function("_jax.dlpack_managed_tensor_to_buffer")
+
+
+def buffer_to_dlpack_managed_tensor(buffer, stream=None, max_version=None,
+                                    copied=False):
+  """A DLPack capsule for a single-device array (dlpack.cc BufferToDLPack...).
+
+  With max_version >= 1 the versioned capsule is read-only (as jaxlib's);
+  the legacy capsule can't say so, and NumPy won't export a read-only array
+  that way, so it gets a private copy.
+  """
+  del stream
+  arr = buffer._value
+  if max_version is not None and tuple(max_version)[:1] >= (1,):
+    return arr.__dlpack__(max_version=tuple(max_version),
+                          copy=True if copied else None)
+  return np.array(arr, copy=True).__dlpack__()
+
+
+_CPU_MIN_ALIGN = 16  # xla::cpu::MinAlign()
+
+
+class _Capsule:
+  """Hands an existing DLPack capsule to `np.from_dlpack`."""
+
+  def __init__(self, capsule):
+    self._capsule = capsule
+
+  def __dlpack__(self, **_):
+    return self._capsule
+
+  def __dlpack_device__(self):
+    return (1, 0)
+
+
+def dlpack_managed_tensor_to_buffer(tensor, device, stream=None, copy=None,
+                                    dl_device_type=None):
+  """A shax array from a DLPack capsule (dlpack.cc DLPackManagedTensorToBuffer).
+
+  shax always copies (its arrays own read-only storage), but keeps XLA's CPU
+  rule for `copy=False`: a zero-copy view needs 16-byte-aligned data.
+  """
+  del stream, dl_device_type
+  from shax.jax._src import core  # noqa: PLC0415
+  from shax.jax._src.lib import xla_client  # noqa: PLC0415
+  from shax.jax._src.lib._array import ArrayImpl  # noqa: PLC0415
+  view = np.from_dlpack(_Capsule(tensor))
+  ptr = view.ctypes.data
+  if copy is not None and not copy and view.size and ptr % _CPU_MIN_ALIGN:
+    raise JaxRuntimeError(
+        "INVALID_ARGUMENT: Can't create a view of buffer with unaligned "
+        f"data, ptr: {ptr:#x} is not aligned to {_CPU_MIN_ALIGN} bytes. ")
+  arr = np.array(view, copy=True)
+  return ArrayImpl(core.ShapedArray(arr.shape, arr.dtype),
+                   xla_client.SingleDeviceSharding(device), [arr],
+                   committed=False)
 
 # SHAX: XLA's ApproxTopKReductionOutputSize, ported in the NumPy backend.
 def approx_top_k_reduction_output_size(*args, **kwargs):

@@ -36,7 +36,7 @@ from shax.jax._src.lib import xla_client
 
 config_ext = _jax.config
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 _T = TypeVar('_T')
 

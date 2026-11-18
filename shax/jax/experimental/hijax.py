@@ -1,0 +1,56 @@
+# SHAX: ported from jax/experimental/hijax.py (jax-v0.12.0.1); Apache-2.0, see shax/jax/_src/LICENSE-JAX.
+# SHAX: hand edits are marked `SHAX:`; regenerate a diff with scripts/port-upstream.py jax/experimental/hijax.py --diff
+# Copyright 2025 The JAX Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ruff: noqa
+
+from shax.jax._src.ad_util import (
+    Zero as Zero,
+)
+from shax.jax._src.core import (
+    AbstractValue as AbstractValue,
+    ShapedArray as ShapedArray,
+    aval_method as aval_method,
+    aval_property as aval_property,
+)
+from shax.jax._src.interpreters.ad import (
+    GradAccum as GradAccum,
+    NullAccum as NullAccum,
+    RefAccum as RefAccum,
+    ValAccum as ValAccum,
+    instantiate_zeros as instantiate_zeros,
+    is_undefined_primal as is_undefined_primal,
+)
+from shax.jax._src.effects import (
+    control_flow_allowed_effects as control_flow_allowed_effects,
+)
+from shax.jax._src.hijax import (
+    HiPrim as HiPrim,
+    HiPspec as HiPspec,
+    HiType as HiType,
+    MappingSpec as MappingSpec,
+    bdims_at_front as bdims_at_front,
+    jvp_from_lin as jvp_from_lin,
+    linearize_from_jvp as linearize_from_jvp,
+    register_hitype as register_hitype,
+    unmap_avals as unmap_avals,
+    vjp_from_jvp as vjp_from_jvp,
+    vjp_from_lin as vjp_from_lin,
+    vmap_rule as vmap_rule,
+)
+from shax.jax._src.state import (
+    AbstractRef as AbstractRef,
+    TransformedRef as TransformedRef
+)

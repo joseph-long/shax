@@ -24,7 +24,7 @@ import time
 from shax.jax._src import clusters
 from shax.jax._src.cloud_tpu_init import running_in_cloud_tpu_vm
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 # We use an arbitrarily chosen port for the coordinator since we cannot
 # rely on communication to choose one in real time.

@@ -98,7 +98,7 @@ def transparent_hugepages_enabled() -> bool:
   return path.exists() and path.read_text().strip() == '[always] madvise never'
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 
 def num_available_amd_gpus(stop_at: int | None = None) -> int:

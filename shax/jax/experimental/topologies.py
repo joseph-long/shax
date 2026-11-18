@@ -1,0 +1,103 @@
+# SHAX: ported from jax/experimental/topologies.py (jax-v0.12.0.1); Apache-2.0, see shax/jax/_src/LICENSE-JAX.
+# SHAX: hand edits are marked `SHAX:`; regenerate a diff with scripts/port-upstream.py jax/experimental/topologies.py --diff
+# Copyright 2023 The JAX Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from shax import jax
+from shax.jax._src import mesh_utils
+from shax.jax._src.lib import _jax
+from shax.jax._src import xla_bridge as xb
+
+Device = _jax.Device
+
+
+class TopologyDescription:
+
+  def __init__(self, devices: list[Device]):
+    self.devices: list[Device] = devices
+
+  def serialize(self) -> bytes:
+    """Serializes the topology of the contained devices to protobuf bytes."""
+    return _jax.get_topology_for_devices(self.devices).serialize()
+
+  @classmethod
+  def deserialize(cls, serialized: bytes) -> TopologyDescription:
+    """Deserializes a PJRT C API topology from a protobuf byte string."""
+    device_topology = _jax.DeviceTopology.deserialize(serialized)
+    return cls(device_topology._make_compile_only_devices())
+
+
+def get_attached_topology(platform=None) -> TopologyDescription:
+  return TopologyDescription(jax.devices(backend=platform))
+
+
+def get_topology_desc(
+    topology_name: str = "", platform: str | None = None, **kwargs
+) -> TopologyDescription:
+  if platform == "tpu" or platform is None:
+    return TopologyDescription(
+        xb.make_pjrt_tpu_topology(
+            topology_name, **kwargs
+        )._make_compile_only_devices()
+    )
+  try:
+    topology = xb.make_pjrt_topology(platform, topology_name, **kwargs)
+    return TopologyDescription(topology._make_compile_only_devices())
+  except _jax.JaxRuntimeError as e:
+    msg, *_ = e.args
+    if msg.startswith("UNIMPLEMENTED"):
+      raise NotImplementedError(msg) from e
+    else:
+      raise
+
+
+_DEVICE_KIND_TO_TOPOLOGY: dict[str, tuple[str, str]] = {
+    "TPU v2": ("v2=1x1", "tpu"),
+    "TPU v3": ("v3=1x1", "tpu"),
+    "TPU v4 lite": ("v4 lite=1x1", "tpu"),
+    "TPU v4": ("v4=1x1x1", "tpu"),
+    "TPU v5 lite": ("v5e=1x1", "tpu"),
+    "TPU v5e": ("v5e=1x1", "tpu"),
+    "TPU v5": ("v5p=1x1x1", "tpu"),
+    "TPU v5p": ("v5p=1x1x1", "tpu"),
+    "TPU v6 lite": ("v6e=1x1", "tpu"),
+    "TPU v6e": ("v6e=1x1", "tpu"),
+    "TPU7x": ("tpu7x=1x1x1", "tpu"),
+}
+
+
+def _get_compile_only_device(device_kind: str) -> Device:
+  if device_kind not in _DEVICE_KIND_TO_TOPOLOGY:
+    raise ValueError(f"Unsupported device_kind: {device_kind}")
+  topology_name, platform = _DEVICE_KIND_TO_TOPOLOGY[device_kind]
+  return get_topology_desc(topology_name, platform=platform).devices[0]
+
+
+# -- future mesh_utils --
+
+
+def make_mesh(
+    topo: TopologyDescription,
+    mesh_shape: Sequence[int],
+    axis_names: tuple[str, ...],
+    *,
+    contiguous_submeshes: bool = False
+) -> jax.sharding.Mesh:
+  devices = mesh_utils.create_device_mesh(
+      mesh_shape, list(topo.devices), contiguous_submeshes=contiguous_submeshes)
+  return jax.sharding.Mesh(devices, axis_names)

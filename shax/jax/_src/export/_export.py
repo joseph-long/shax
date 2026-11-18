@@ -60,7 +60,7 @@ from shax.jax._src import xla_bridge as xb
 
 from shax.jax._src.export import shape_poly
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 map = util.safe_map
 zip = util.safe_zip

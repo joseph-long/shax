@@ -2,6 +2,8 @@
 XLA types (sharding, layout) that JAX's Python layers reference."""
 from __future__ import annotations
 
+import enum as _enum
+
 
 class Device:  # SHAX: type name matches jaxlib (repr says CpuDevice)
   """The single host CPU device that shax computes on."""
@@ -42,6 +44,13 @@ class Device:  # SHAX: type name matches jaxlib (repr says CpuDevice)
 
   def live_buffers(self):
     return []
+
+  def get_stream_for_external_ready_events(self):
+    # PJRT's CPU client has no streams.
+    from shax.jax._src.lib import _jax  # noqa: PLC0415  (import cycle)
+    raise _jax.JaxRuntimeError(
+        "UNIMPLEMENTED: GetStreamForExternalReadyEvents is not implemented "
+        "for CPU devices.")
 
 
 class Memory:
@@ -120,6 +129,15 @@ class Client:
   def _get_all_devices(self):
     return list(self._devices)
 
+  def device_from_local_hardware_id(self, local_hardware_id: int):
+    for d in self._devices:
+      if d.local_hardware_id == local_hardware_id:
+        return d
+    from shax.jax._src.lib import _jax  # noqa: PLC0415  (import cycle)
+    raise _jax.JaxRuntimeError(
+        f"INVALID_ARGUMENT: No matching device found for local_hardware_id "
+        f"{local_hardware_id}")
+
   def device_count(self) -> int:
     return len(self._devices)
 
@@ -194,18 +212,19 @@ class _Unsupported:
 
 
 class OpSharding(_Unsupported):
-  class Type:
-    REPLICATED = "REPLICATED"
-    MAXIMAL = "MAXIMAL"
-    TUPLE = "TUPLE"
-    OTHER = "OTHER"
-    MANUAL = "MANUAL"
-    UNKNOWN = "UNKNOWN"
-    UNREDUCED = "UNREDUCED"
+  # xla_data.proto OpSharding.Type / ShardGroupType (nanobind enums).
+  class Type(_enum.IntEnum):
+    REPLICATED = 0
+    MAXIMAL = 1
+    TUPLE = 2
+    OTHER = 3
+    MANUAL = 4
+    UNKNOWN = 5
+    UNREDUCED = 6
 
-  class ShardGroupType:
-    AS = "AS"
-    LIKE = "LIKE"
+  class ShardGroupType(_enum.IntEnum):
+    AS = 0
+    LIKE = 1
 
 
 class HloSharding:
@@ -236,7 +255,16 @@ class HloSharding:
 
   @classmethod
   def iota_tile(cls, dims, reshape_dims=(), transpose_perm=(), subgroup_types=()):
-    return cls("tiled", dims, None, subgroup_types)
+    # XLA IotaTileAssignment: iota(n).reshape(reshape_dims)
+    # .transpose(transpose_perm), read in row-major order.
+    devices = None
+    if reshape_dims and transpose_perm and (
+        list(transpose_perm) != list(range(len(transpose_perm)))):
+      import numpy as np  # noqa: PLC0415
+      n = int(np.prod(dims))
+      devices = (np.arange(n).reshape(tuple(reshape_dims))
+                 .transpose(tuple(transpose_perm)).ravel().tolist())
+    return cls("tiled", dims, devices, subgroup_types)
 
   @classmethod
   def subgroup_with_device_ordering(cls, tile_assignment, subgroup_types=()):

@@ -88,6 +88,7 @@ def lower_jaxpr_to_module(module_name, jaxpr, *, num_const_args, in_avals,
   from shax.jax._src import util  # noqa: PLC0415
   from shax.jax._src.interpreters import mlir  # noqa: PLC0415
   _check_lowering_rules(jaxpr.jaxpr, platforms)
+  _check_constants(jaxpr)
   module = ShaxModule(module_name, jaxpr, num_const_args=num_const_args,
                       in_avals=in_avals, out_avals=out_avals,
                       ordered_effects=ordered_effects, platforms=platforms,
@@ -97,9 +98,27 @@ def lower_jaxpr_to_module(module_name, jaxpr, *, num_const_args, in_avals,
       module, [], [], mlir.ShapePolyLoweringState(dim_vars, platforms))
 
 
+def _check_constants(jaxpr) -> None:
+  """The large-captured-constants warnings of `mlir.lower_jaxpr_to_fun`
+  (for the entry function; shax lowers nothing else)."""
+  from shax.jax._src import config, core  # noqa: PLC0415
+  from shax.jax._src.interpreters import mlir  # noqa: PLC0415
+  if not config.use_simplified_jaxpr_constants.value:
+    mlir.check_jaxpr_constants(jaxpr)
+  elif config.captured_constants_warn_bytes.value >= 0:
+    for eqn in jaxpr.jaxpr.eqns:
+      for v in eqn.invars:
+        if type(v) is core.Literal and core.is_hoistable(v):
+          mlir.log_closed_over_constant(v, eqn, jaxpr.jaxpr._debug_info)
+
+
 def _lowering_time_checks(eqn) -> None:
   """Errors that upstream lowering *rules* raise, which shax (running no
   lowering rules) reproduces here."""
+  # (By name first: importing checkify here, which nothing else may have
+  # imported yet, would make garbage cycles mid-trace; core_test checks.)
+  if eqn.primitive.name != "check":
+    return
   from shax.jax._src import checkify, config  # noqa: PLC0415
   if eqn.primitive is checkify.check_p:
     # checkify.check_lowering_rule (cpu): a check that was never
@@ -124,9 +143,12 @@ def _check_lowering_rules(jaxpr, platforms) -> None:
   # rule-less primitive there needn't be an error.
   plain_calls = {pjit.jit_p, core.closed_call_p, core.call_p}
   seen: set = set()
-
-  def check(j):
-    for eqn in j.eqns:
+  # An explicit stack, not a recursive closure (which would be a reference
+  # cycle left for the GC on every lowering; core_test checks for those).
+  # Depth-first in equation order, as lowering visits them.
+  stack = [iter(jaxpr.eqns)]
+  while stack:
+    for eqn in stack[-1]:
       prim = eqn.primitive
       if prim not in seen:
         seen.add(prim)
@@ -141,10 +163,12 @@ def _check_lowering_rules(jaxpr, platforms) -> None:
                 f"for {where}")
       _lowering_time_checks(eqn)
       if prim in plain_calls:
-        for sub in core.jaxprs_in_params(eqn.params):
-          check(sub)
-
-  check(jaxpr)
+        subs = list(core.jaxprs_in_params(eqn.params))
+        if subs:
+          stack.extend(iter(j.eqns) for j in reversed(subs))
+          break
+    else:
+      stack.pop()
 
 
 # --- compilation ---------------------------------------------------------------
@@ -282,6 +306,8 @@ class ShaxExecutable:
     self._devices = list(devices)
     self.compiler_options_kvs = compiler_options_kvs
     self.fingerprint = None
+    from shax.jax._src.lib.xla_client import Traceback  # noqa: PLC0415
+    self.traceback = Traceback.get_traceback()
     _LIVE_EXECUTABLES.add(self)
 
   def __repr__(self):

@@ -48,7 +48,7 @@ from shax.jax._src.lib import _profiler
 from shax.jax._src.lib import ifrt_proxy
 from shax.jax._src.lib import xla_client
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 jax_plugins: Any | None
 try:

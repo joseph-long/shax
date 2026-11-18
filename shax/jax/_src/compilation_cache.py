@@ -50,7 +50,7 @@ from shax.jax._src.lib.mlir import ir
 from shax.jax._src.lru_cache import LRUCache
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 _cache: CacheInterface | None = None
 

@@ -22,7 +22,7 @@ import warnings
 from shax.jax._src import config
 from shax.jax._src import hardware_utils
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 running_in_cloud_tpu_vm: bool = False
 

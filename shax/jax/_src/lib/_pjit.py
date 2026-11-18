@@ -11,12 +11,31 @@ from __future__ import annotations
 from collections import OrderedDict
 import functools
 import inspect
+import os
+import types
 import weakref
 from typing import Any
 
 import numpy as np
 
 kPjitFunctionPickleVersion = 1
+
+
+_LIB_DIR = os.path.dirname(os.path.abspath(__file__)) + os.sep
+
+
+def _drop_lib_frames(e: BaseException) -> None:
+  """Remove shax lib/ frames (jaxlib C++ in real JAX) from `e`'s traceback."""
+  tb = e.__traceback__
+  entries = []
+  while tb is not None:
+    if not tb.tb_frame.f_code.co_filename.startswith(_LIB_DIR):
+      entries.append(tb)
+    tb = tb.tb_next
+  new = None
+  for t in reversed(entries):
+    new = types.TracebackType(new, t.tb_frame, t.tb_lasti, t.tb_lineno)
+  e.__traceback__ = new
 
 
 class PjitFunctionCache:
@@ -110,6 +129,7 @@ def _run_fastpath(fp, flat):
   Returns _MISSING to fall back to cache_miss."""
   from shax.jax._src import config, dispatch  # noqa: PLC0415  (cycle)
   from shax.jax._src import shax_backend  # noqa: PLC0415
+  from shax.jax._src.lib import _jax  # noqa: PLC0415
   from shax.jax._src.lib._array import ArrayImpl  # noqa: PLC0415
   if config.no_execution.value or dispatch.needs_check_special():
     return _MISSING
@@ -123,9 +143,9 @@ def _run_fastpath(fp, flat):
         return _MISSING  # let the Python path raise the right error
       bufs.append(x)
     else:  # NumPy arrays and scalars: put them on the device
-      bufs.append(batched_device_put(
-          _aval_of(x), s, [np.asarray(x)], list(s._addressable_device_assignment),
-          False))
+      if not any(x is c for c in fp.const_args):  # pjit.cc: dynamic args only
+        _jax.apply_transfer_guard("host_to_device")
+      bufs.append(_device_put(_aval_of(x), s, x, False))
   module = fp.xla_executable.module
   jaxpr = module.jaxpr
   # Arguments and outputs here are flattened with the dispatch registry, so
@@ -197,6 +217,29 @@ def _arg_signature(x, x64):
   return None
 
 
+class PyArgSignature:
+  """jax_jit.cc PyArgSignature: (dtype, shape, weak_type) of an argument."""
+  __slots__ = ("dtype", "shape", "weak_type")
+
+  def __init__(self, dtype, shape, weak_type):
+    self.dtype = dtype
+    self.shape = tuple(shape)
+    self.weak_type = weak_type
+
+  def __repr__(self):
+    return (f"PyArgSignature(dtype={self.dtype}, shape={self.shape}, "
+            f"weak_type={self.weak_type})")
+
+
+def arg_signature_of_value(value, jax_enable_x64):
+  """jax_jit._ArgSignatureOfValue (py_values.cc PyArgSignatureOfValue)."""
+  sig = _arg_signature(value, jax_enable_x64)
+  if sig is None:
+    raise TypeError(
+        f"Unsupported type: {type(value)} (_ArgSignatureOfValue)")
+  return PyArgSignature(*sig[:3])
+
+
 class PjitFunction:
   """Callable returned by `jax.jit`. Instances get `functools.wraps`'d, and
   upstream attaches `lower`/`trace`/`eval_shape`/`clear_cache` to the type.
@@ -234,6 +277,15 @@ class PjitFunction:
     return table
 
   def __call__(self, *args, **kwargs):
+    try:
+      return self._call(*args, **kwargs)
+    except BaseException as e:
+      # jaxlib's PjitFunction is C++ and adds no Python frames; drop ours so
+      # filtered tracebacks look the same (errors_test).
+      _drop_lib_frames(e)
+      raise
+
+  def _call(self, *args, **kwargs):
     # pjit.cc: compute the call signature; unsupported arguments (tracers,
     # unknown types) fall back to cache_miss without creating an entry. On a
     # miss, cache_miss runs and its fastpath data (if any) is stored; on a
@@ -388,8 +440,18 @@ def shard_args(shardings, layouts, copy_semantics, args, fallback=None):
 def batched_device_put(aval, sharding, xs, devices, committed=True,
                        force_copy=False, host_buffer_semantics=None,
                        enable_x64=None):
+  from shax.jax._src.lib import _jax  # noqa: PLC0415
   from shax.jax._src.lib._array import ArrayImpl  # noqa: PLC0415
-  return ArrayImpl(aval, sharding, [np.asarray(xs[0])], committed,
+  fmt = lambda: f"aval={aval!r}, dst_sharding={sharding!r}"  # noqa: E731
+  for x in xs:  # py_array.cc BatchedDevicePut
+    _jax.apply_transfer_guard(
+        "device_to_device" if type(x) is ArrayImpl else "host_to_device", fmt)
+  return _device_put(aval, sharding, xs[0], committed)
+
+
+def _device_put(aval, sharding, x, committed):
+  from shax.jax._src.lib._array import ArrayImpl  # noqa: PLC0415
+  return ArrayImpl(aval, sharding, [np.asarray(x)], committed,
                    _skip_checks=True)
 
 
@@ -423,21 +485,28 @@ def reorder_shards(x, dst_sharding, copy_semantics):
 # --- jax_jit.parse_arguments / ArgumentSignature (port of jaxlib/jax_jit.cc) ----
 
 class ArgumentSignature:
-  __slots__ = ("static_args", "static_arg_names", "dynamic_arg_names",
-               "dynamic_arg_treedefs", "_hash")
+  # Stored as tuples (hashed on every call); exposed as lists, as jaxlib's
+  # nanobind properties are.
+  __slots__ = ("_static_args", "_static_arg_names", "_dynamic_arg_names",
+               "_dynamic_arg_treedefs", "_hash")
 
   def __init__(self, static_args, static_arg_names, dynamic_arg_names,
                dynamic_arg_treedefs):
-    self.static_args = tuple(static_args)
-    self.static_arg_names = tuple(static_arg_names)
-    self.dynamic_arg_names = tuple(dynamic_arg_names)
-    self.dynamic_arg_treedefs = tuple(dynamic_arg_treedefs)
+    self._static_args = tuple(static_args)
+    self._static_arg_names = tuple(static_arg_names)
+    self._dynamic_arg_names = tuple(dynamic_arg_names)
+    self._dynamic_arg_treedefs = tuple(dynamic_arg_treedefs)
     self._hash = None
+
+  static_args = property(lambda self: list(self._static_args))
+  static_arg_names = property(lambda self: list(self._static_arg_names))
+  dynamic_arg_names = property(lambda self: list(self._dynamic_arg_names))
+  dynamic_arg_treedefs = property(lambda self: list(self._dynamic_arg_treedefs))
 
   def __hash__(self):
     if self._hash is None:
       hashes = []
-      for a in self.static_args:
+      for a in self._static_args:
         try:
           hashes.append(hash(a))
         except TypeError as e:
@@ -445,24 +514,24 @@ class ArgumentSignature:
               "Non-hashable static arguments are not supported. An error "
               "occurred while trying to hash an object of type "
               f"{type(a)}, {a}. The error was:\n{e}\n") from e
-      self._hash = hash((self.dynamic_arg_treedefs, len(self.dynamic_arg_names),
-                         len(self.static_args), len(self.static_arg_names),
-                         self.dynamic_arg_names, tuple(hashes),
-                         self.static_arg_names))
+      self._hash = hash((self._dynamic_arg_treedefs, len(self._dynamic_arg_names),
+                         len(self._static_args), len(self._static_arg_names),
+                         self._dynamic_arg_names, tuple(hashes),
+                         self._static_arg_names))
     return self._hash
 
   def __eq__(self, other):
     if not isinstance(other, ArgumentSignature):
       return False
-    if self.dynamic_arg_treedefs != other.dynamic_arg_treedefs:
+    if self._dynamic_arg_treedefs != other._dynamic_arg_treedefs:
       return False
-    if self.dynamic_arg_names != other.dynamic_arg_names:
+    if self._dynamic_arg_names != other._dynamic_arg_names:
       return False
-    if self.static_arg_names != other.static_arg_names:
+    if self._static_arg_names != other._static_arg_names:
       return False
-    if len(self.static_args) != len(other.static_args):
+    if len(self._static_args) != len(other._static_args):
       return False
-    for a, b in zip(self.static_args, other.static_args):
+    for a, b in zip(self._static_args, other._static_args):
       try:
         if type(a) is not type(b) or not bool(a == b):
           return False
@@ -478,13 +547,13 @@ class ArgumentSignature:
 
   def __repr__(self):
     return ("static args (positional + keyword): "
-            f"[{','.join(str(a) for a in self.static_args)}], "
+            f"[{','.join(str(a) for a in self._static_args)}], "
             "static arg keyword names: "
-            f"[{','.join(str(a) for a in self.static_arg_names)}], "
+            f"[{','.join(str(a) for a in self._static_arg_names)}], "
             "dynamic arg signatures (positional + keyword): "
-            f"[{','.join(str(a) for a in self.dynamic_arg_names)}], "
+            f"[{','.join(str(a) for a in self._dynamic_arg_names)}], "
             "dynamic arg shardings: "
-            f"[{'| '.join(str(t) for t in self.dynamic_arg_treedefs)}]")
+            f"[{'| '.join(str(t) for t in self._dynamic_arg_treedefs)}]")
 
   __str__ = __repr__
 

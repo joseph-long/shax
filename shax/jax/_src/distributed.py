@@ -27,7 +27,7 @@ from shax.jax._src import config
 from shax.jax._src import xla_bridge
 from shax.jax._src.lib import _jax
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 
 _CHECK_PROXY_ENVS = config.bool_flag(

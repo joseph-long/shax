@@ -36,7 +36,7 @@ from shax.jax._src.lib import pytree as lib_pytree
 from shax.jax._src.lib import weakref_lru_cache as lib_weakref_lru_cache
 from shax.jax._src.lib import utils as jaxlib_utils
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 Seq = Sequence
 

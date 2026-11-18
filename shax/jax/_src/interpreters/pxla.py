@@ -72,7 +72,7 @@ import numpy as np
 unsafe_map, map = map, safe_map
 zip, unsafe_zip = safe_zip, zip
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 Index = int | slice | tuple[int | slice, ...]
 PyTreeDef = tree_util.PyTreeDef

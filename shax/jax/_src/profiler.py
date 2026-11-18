@@ -47,7 +47,7 @@ ProfilePlane = _profile_data.ProfilePlane
 
 _profiler_server: _profiler.ProfilerServer | None = None
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 
 class ProfileOptions(_profiler.ProfileOptions):

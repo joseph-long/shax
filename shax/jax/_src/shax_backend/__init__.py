@@ -137,6 +137,16 @@ def from_numpy(val, aval) -> Any:
 def apply_primitive(prim, *args, **params):
   """Eager application (dispatch.apply_primitive): like jax's per-primitive
   jit, check the outputs for nan/inf under debug_nans/debug_infs."""
+  if _has_ref_arg_and_body(prim, args, params):
+    return _apply_via_jit(prim, args, params)
+  if not evaluating_jit():
+    # jax runs an eager primitive as a jit, which puts host arguments on the
+    # device: that's a host-to-device transfer (pjit.cc fast path).
+    for a in args:
+      if isinstance(a, _HOST_VALUE_TYPES):
+        from shax.jax._src.lib import _jax  # noqa: PLC0415
+        _jax.apply_transfer_guard("host_to_device")
+        break
   out = _apply_impl(prim, *args, **params)
   from shax.jax._src import dispatch  # noqa: PLC0415
   if dispatch.needs_check_special():
@@ -146,9 +156,50 @@ def apply_primitive(prim, *args, **params):
       dispatch.check_special(prim.name, [
           o for o in outs if isinstance(core.typeof(o), core.ShapedArray)])
     except api_util.InternalFloatingPointError as e:
+      from shax.jax._src.shax_backend import collectives  # noqa: PLC0415
+      if collectives._active():
+        # Inside an eager shard_map/pmap body: shard_map's
+        # _maybe_check_special reports it for the whole computation.
+        raise FloatingPointError(
+            f"Invalid value ({e.ty}) encountered in sharded computation."
+        ) from None
       raise FloatingPointError(
           f"invalid value ({e.ty}) encountered in {prim.name}") from None
   return out
+
+
+_HOST_VALUE_TYPES = (np.ndarray, np.generic, bool, int, float, complex)
+
+
+def _has_ref_arg_and_body(prim, args, params) -> bool:
+  """A higher-order primitive (scan, cond, ...) applied eagerly to a Ref."""
+  from shax.jax._src import core  # noqa: PLC0415
+  from shax.jax._src.state.types import AbstractRef  # noqa: PLC0415
+  return (any(isinstance(core.typeof(a), AbstractRef) for a in args)
+          and any(isinstance(v, core.Jaxpr)
+                  for v in params.values()))
+
+
+_ref_jit_cache: dict = {}
+
+
+def _apply_via_jit(prim, args, params):
+  # As jax's dispatch does for every eager primitive: run it as a jit, whose
+  # lowering discharges the Ref arguments and writes their new values back.
+  from shax.jax._src import api  # noqa: PLC0415
+  try:
+    key = (prim, tuple(sorted(params.items())))
+    hash(key)
+  except TypeError:
+    key = None
+  fn = _ref_jit_cache.get(key) if key is not None else None
+  if fn is None:
+    fn = api.jit(lambda *xs: prim.bind(*xs, **params))
+    if key is not None:
+      if len(_ref_jit_cache) > 256:
+        _ref_jit_cache.clear()
+      _ref_jit_cache[key] = fn
+  return fn(*args)
 
 
 def _apply_impl(prim, *args, **params):
@@ -191,10 +242,14 @@ def _is_ext(aval) -> bool:
 def _lowered_fun(prim):
   """`(fun, multiple_results)` of prim's CPU `mlir.lower_fun` lowering, if any."""
   from shax.jax._src.interpreters import mlir  # noqa: PLC0415
+  # A CPU-specific rule that isn't `lower_fun` (e.g. an FFI kernel such as
+  # bcsr_dot_general's cpu_csr_sparse_dense_ffi) can't run here; fall back to
+  # the platform-independent rule, which computes the same thing.
   for table in (mlir._platform_specific_lowerings.get("cpu", {}), mlir._lowerings):
     entry = table.get(prim)
-    if entry is not None:
-      return getattr(entry.rule, "_shax_lower_fun", None)
+    lf = getattr(entry.rule, "_shax_lower_fun", None) if entry else None
+    if lf is not None:
+      return lf
   return None
 
 

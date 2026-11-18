@@ -64,7 +64,7 @@ ConstId = int
 AttrKind = Any
 PyTree = Any
 HTLV = Any
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 TracebackScope = _jax.TracebackScope
 

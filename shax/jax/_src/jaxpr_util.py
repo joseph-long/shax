@@ -43,7 +43,7 @@ from shax.jax._src.lib import xla_client
 map, unsafe_map = util.safe_map, map
 zip, unsafe_zip = util.safe_zip, zip
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 
 def _all_eqns(

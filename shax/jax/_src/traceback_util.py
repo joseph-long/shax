@@ -35,6 +35,10 @@ def register_exclusion(path: str):
 
 register_exclusion(__file__)
 register_exclusion(util.__file__)
+# SHAX: shax's pure-Python stand-ins for jaxlib's C++ (lib/) and its NumPy
+# backend (XLA's place) never appear in a JAX traceback; hide them whole.
+register_exclusion(os.path.dirname(_jax.__file__))
+register_exclusion(os.path.join(os.path.dirname(__file__), "shax_backend"))
 
 _jax_message_append = (
     'The stack trace below excludes JAX-internal frames.\n'

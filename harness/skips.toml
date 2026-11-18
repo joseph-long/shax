@@ -302,3 +302,297 @@ reason = "case only sampled on wasm32 (bfloat16 sum); real JAX fails it too: it 
 nodeid = "tests/api_test.py::APITest::test_asarray_no_copy_np"
 targets = ["pyodide"]
 reason = "wasm32 malloc is 8-byte aligned, reaching an assert native 16-byte-aligned buffers skip; shax copies host arrays to stay immutable"
+
+# --- needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_lowered_jaxpr_with_multiple_ordered_effects_takes_in_tokens"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_lowered_jaxpr_with_ordered_effects_takes_token_inputs"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_lowered_jaxpr_without_ordered_effects_takes_no_dummy_inputs"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_lowering_that_doesnt_set_tokens_should_cause_error"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_lowering_that_sets_wrong_tokens_should_cause_error"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_nontrivial_lowering_with_ordered_effect_should_consume_token"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_nontrivial_lowering_with_unordered_effect_should_consume_token"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::TokenSetTest::test_create"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_cond_body_should_not_have_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_grad_of_cond_transforms_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_grad_of_scan_should_transform_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_jvp_of_cond_transforms_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_jvp_of_scan_should_transform_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_jvp_of_while_loop_transforms_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_scan_body_should_not_have_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_vmap_of_cond_should_transform_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_vmap_of_grad_of_cond_transforms_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_vmap_of_grad_of_scan_should_transform_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_vmap_of_jvp_of_cond_transforms_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_vmap_of_jvp_of_while_loop_transforms_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_vmap_of_scan_should_transform_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_vmap_of_while_loop_should_transform_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackControlFlowTest::test_while_loop_body_should_not_have_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTest::test_call_primitive_jaxpr_should_not_store_outer_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTest::test_jit_jaxpr_should_not_store_outer_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTransformationTest::test_grad_should_add_jvp_and_transpose_to_call_jaxpr"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTransformationTest::test_grad_should_add_jvp_and_transpose_to_name_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTransformationTest::test_jvp_should_apply_to_call_jaxpr"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTransformationTest::test_nested_jit_stack"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTransformationTest::test_re_materalization_appears_in_hlo"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/name_stack_test.py::NameStackTransformationTest::test_vmap_should_apply_to_call_jaxpr"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+
+# --- user primitive with only an MLIR lowering (shax can't run lowering rules)
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_allowed_effect_in_cond"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_allowed_effect_in_cond_body"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_allowed_effect_in_cond_jvp"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_allowed_effect_in_scan"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_allowed_ordered_effect_in_cond"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_allowed_ordered_effect_in_scan"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_multiple_allowed_ordered_effect_in_cond"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ControlFlowEffectsTest::test_multiple_allowed_ordered_effect_in_scan"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_can_lower_and_run_jaxpr_with_ordered_effects"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_can_lower_and_run_jaxpr_with_unordered_effects"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_can_lower_multiple_effects"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::EffectfulJaxprLoweringTest::test_runtime_tokens_should_update_after_running_effectful_function"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+[[skip]]
+nodeid = "tests/jaxpr_effects_test.py::ParallelEffectsTest::test_can_pmap_unordered_effect"
+exact = true
+reason = "user primitive with only an MLIR lowering (shax can't run lowering rules)"
+
+# --- needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)
+[[skip]]
+nodeid = "tests/mutable_array_test.py::MutableArrayTest::test_can_dce_internal_ref_effect"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+
+# --- needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)
+[[skip]]
+nodeid = "tests/aot_test.py::JaxAotTest::test_constants_in_lowering_in_aot"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/aot_test.py::JaxAotTest::test_lower_as_text_with_and_without_debug_info"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/hijax_test.py::HijaxTest::test_stages"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/source_info_test.py::SourceInfoTest::test_cond_traceback_boundaries_in_mlir"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/source_info_test.py::SourceInfoTest::test_function_body_location_in_mlir"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/source_info_test.py::SourceInfoTest::test_jit_traceback_boundaries_in_mlir"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/source_info_test.py::SourceInfoTest::test_nested_call_traceback_in_mlir"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+[[skip]]
+nodeid = "tests/source_info_test.py::SourceInfoTest::test_while_loop_traceback_boundaries_in_mlir"
+exact = true
+reason = "needs HLO/StableHLO text or MLIR objects (shax never lowers to XLA)"
+
+# --- needs jax.export (serialized StableHLO)
+[[skip]]
+nodeid = "tests/error_check_test.py::ErrorCheckTests::test_error_check_aot"
+exact = true
+reason = "needs jax.export (serialized StableHLO)"
+[[skip]]
+nodeid = "tests/error_check_test.py::ErrorCheckTests::test_error_check_aot_includes_traceback"
+exact = true
+reason = "needs jax.export (serialized StableHLO)"
+[[skip]]
+nodeid = "tests/error_check_test.py::ErrorCheckTests::test_error_check_aot_should_not_override_existing_error"
+exact = true
+reason = "needs jax.export (serialized StableHLO)"
+
+# --- needs XLA's sharding protos (OpSharding/HloSharding)
+[[skip]]
+nodeid = "tests/pickle_test.py::PickleTest::testPickleOpSharding"
+exact = true
+reason = "needs XLA's sharding protos (OpSharding/HloSharding)"
+[[skip]]
+nodeid = "tests/pickle_test.py::PickleTest::test_pickle_gspmd_sharding"
+exact = true
+reason = "needs XLA's sharding protos (OpSharding/HloSharding)"
+[[skip]]
+nodeid = "tests/pickle_test.py::PickleTest::test_pickle_gspmd_sharding_with_memory_kind"
+exact = true
+reason = "needs XLA's sharding protos (OpSharding/HloSharding)"
+[[skip]]
+nodeid = "tests/extend_test.py::ShardingTest::test_hlo_sharding_roundtrip"
+exact = true
+reason = "needs XLA's sharding protos (OpSharding/HloSharding)"
+[[skip]]
+nodeid = "tests/array_test.py::ShardingTest::test_gspmd_sharding_repr"
+exact = true
+reason = "needs XLA's sharding protos (OpSharding/HloSharding)"
+[[skip]]
+nodeid = "tests/array_test.py::ShardingTest::test_hlo_sharding_get_axis_sizes"
+exact = true
+reason = "needs XLA's sharding protos (OpSharding/HloSharding)"
+
+# --- needs an XLA-only feature (compiled executable version / device topologies)
+[[skip]]
+nodeid = "tests/aot_test.py::JaxAotTest::test_get_executable_version"
+exact = true
+reason = "needs an XLA-only feature (compiled executable version / device topologies)"
+[[skip]]
+nodeid = "tests/aot_test.py::JaxAotTest::test_serialized_topology_invalid_bytes_raises_error"
+exact = true
+reason = "needs an XLA-only feature (compiled executable version / device topologies)"
+
+# --- needs an XLA-only feature (jaxlib's pprof profile converter)
+[[skip]]
+nodeid = "tests/jaxpr_util_test.py::JaxprStatsTest::test_pprof_equation_profile"
+exact = true
+reason = "needs an XLA-only feature (jaxlib's pprof profile converter)"
+
+# --- runs `import jax` in a fresh subprocess, which the harness's aliasing can't reach
+[[skip]]
+nodeid = "tests/logging_test.py::LoggingTest::test_subprocess_cpp_logging_level"
+exact = true
+reason = "runs `import jax` in a fresh subprocess, which the harness's aliasing can't reach"
+[[skip]]
+nodeid = "tests/logging_test.py::LoggingTest::test_subprocess_double_logging_absent"
+exact = true
+reason = "runs `import jax` in a fresh subprocess, which the harness's aliasing can't reach"
+[[skip]]
+nodeid = "tests/logging_test.py::LoggingTest::test_subprocess_stderr_debug_logging"
+exact = true
+reason = "runs `import jax` in a fresh subprocess, which the harness's aliasing can't reach"
+[[skip]]
+nodeid = "tests/logging_test.py::LoggingTest::test_subprocess_toggling_logging_level"
+exact = true
+reason = "runs `import jax` in a fresh subprocess, which the harness's aliasing can't reach"

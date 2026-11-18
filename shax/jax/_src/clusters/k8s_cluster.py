@@ -29,7 +29,7 @@ import warnings
 from shax.jax._src import clusters
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 
 def retry(

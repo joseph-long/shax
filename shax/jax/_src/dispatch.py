@@ -74,7 +74,7 @@ CompileOptions = xc.CompileOptions
 map, unsafe_map = util.safe_map, map
 zip, unsafe_zip = util.safe_zip, zip
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 # This flag is set on exit; no logging should be attempted
 _on_exit = False

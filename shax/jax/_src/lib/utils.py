@@ -4,20 +4,104 @@ from __future__ import annotations
 import threading
 
 
+_SEQ = (list, tuple)
+_MAX_DRAIN = 10  # utils.cc kMaxDrainCount
+
+
+def _drain(it) -> int | None:
+  """Count what's left in `it`, giving up (None) at _MAX_DRAIN."""
+  count = 0
+  try:
+    for _ in it:
+      count += 1
+      if count >= _MAX_DRAIN:
+        return None
+  except Exception:  # noqa: BLE001  (utils.cc clears errors while draining)
+    pass
+  return count
+
+
+def _zip_length_error(iterators, n, mismatch, arg_is_longer):
+  """utils.cc SetSafeZipLengthError."""
+  lengths, capped = [], []
+  for j, it in enumerate(iterators):
+    if arg_is_longer:
+      consumed = n + 1 if j == mismatch else n
+    else:
+      consumed = n + 1 if j < mismatch else n
+    rest = _drain(it)
+    if rest is None:
+      lengths.append(f"{consumed + _MAX_DRAIN}+")
+      capped.append(str(j))
+    else:
+      lengths.append(str(consumed + rest))
+  msg = (f"safe_zip() argument {mismatch} has length {lengths[mismatch]} but "
+         f"argument 0 has length {lengths[0]}. All lengths: "
+         f"({', '.join(lengths)})")
+  if capped:
+    msg += f" (Note: length capped for argument(s) {', '.join(capped)})"
+  return ValueError(msg)
+
+
 def safe_zip(*args):
+  """Port of jaxlib/utils.cc SafeZip: zip to a list, requiring equal lengths."""
   if not args:
-    raise TypeError("safe_zip requires at least 1 argument.")
-  return list(zip(*args, strict=True))
+    raise TypeError("safe_zip requires at least 1 argument")
+  if all(type(a) in _SEQ for a in args):
+    n = len(args[0])
+    if all(len(a) == n for a in args):
+      return list(zip(*args))
+  iterators = [iter(a) for a in args]
+  out = []
+  sentinel = object()
+  first, rest = iterators[0], iterators[1:]
+  while True:
+    v = next(first, sentinel)
+    if v is not sentinel:
+      tup = [v]
+      for i, it in enumerate(rest, 1):
+        w = next(it, sentinel)
+        if w is sentinel:
+          raise _zip_length_error(iterators, len(out), i, False)
+        tup.append(w)
+      out.append(tuple(tup))
+    else:
+      for i, it in enumerate(rest, 1):
+        if next(it, sentinel) is not sentinel:
+          raise _zip_length_error(iterators, len(out), i, True)
+      return out
 
 
-def safe_map(f, *args):
-  args = [list(a) for a in args]
-  n = len(args[0])
-  for a in args[1:]:
-    if len(a) != n:
-      raise ValueError(f"safe_map() argument {args.index(a) + 1} is "
-                       f"length {len(a)}, but argument 1 is length {n}")
-  return list(map(f, *args))
+def safe_map(*args):
+  """Port of jaxlib/utils.cc SafeMap: map to a list, requiring equal lengths."""
+  if len(args) < 2:
+    raise TypeError("safe_map requires at least 2 arguments")
+  f, seqs = args[0], args[1:]
+  if all(type(a) in _SEQ for a in seqs):
+    n = len(seqs[0])
+    if all(len(a) == n for a in seqs):
+      return list(map(f, *seqs))
+  iterators = [iter(a) for a in seqs]
+  out = []
+  sentinel = object()
+  first, rest = iterators[0], iterators[1:]
+  while True:
+    v = next(first, sentinel)
+    if v is not sentinel:
+      vals = [v]
+      for i, it in enumerate(rest, 1):
+        w = next(it, sentinel)
+        if w is sentinel:
+          raise ValueError(
+              f"safe_map() argument {i + 1} is shorter than argument 1")
+        vals.append(w)
+      out.append(f(*vals))
+    else:
+      for i, it in enumerate(rest, 1):
+        if next(it, sentinel) is not sentinel:
+          raise ValueError(
+              f"safe_map() argument {i + 1} is longer than argument 1")
+      return out
 
 
 def foreach(f, *args):

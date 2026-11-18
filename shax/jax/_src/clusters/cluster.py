@@ -21,7 +21,7 @@ import os
 import logging
 from shax.jax._src.cloud_tpu_init import running_in_cloud_tpu_vm
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 class ClusterEnv:
   """Interface for defining a cluster environment.

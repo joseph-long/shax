@@ -33,7 +33,7 @@ from shax.jax._src.lib.mlir import passmanager as pm
 import numpy as np
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 _extra_flag_prefixes: list[str] = []
 

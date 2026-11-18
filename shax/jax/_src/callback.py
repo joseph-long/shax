@@ -46,7 +46,7 @@ from shax.jax._src.sharding_impls import SdyArray, SdyArrayList, SdyDim, SingleD
 from shax.jax._src.typing import Array
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__.removeprefix("shax."))
 
 # `pure_callback_p` is the main primitive for staging out Python pure callbacks.
 pure_callback_p = core.Primitive("pure_callback")
