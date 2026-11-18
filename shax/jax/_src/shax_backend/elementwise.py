@@ -44,10 +44,12 @@ def _ftz(a, dtypes_=_FTZ_DTYPES):
   if dt not in allowed:
     return a
   tiny = _TINY_BY_DTYPE[dt]
+  # (ndarray.any(), not np.any(): the wrapper costs more than the ufuncs on
+  # the small arrays typical here.)
   if dt.kind == "c":
     re, im = a.real, a.imag
-    if not (np.any((np.abs(re) < tiny) & (re != 0))
-            or np.any((np.abs(im) < tiny) & (im != 0))):
+    if not (((np.abs(re) < tiny) & (re != 0)).any()
+            or ((np.abs(im) < tiny) & (im != 0)).any()):
       return a
     re = np.where(np.abs(re) < tiny, np.copysign(0, re), re)
     im = np.where(np.abs(im) < tiny, np.copysign(0, im), im)
@@ -56,7 +58,8 @@ def _ftz(a, dtypes_=_FTZ_DTYPES):
     return out
   w = a.astype(np.float32) if dt == _BF16 else a
   small = np.abs(w) < tiny  # includes zeros, which need no flushing
-  if not np.any(small & (w != 0)):
+  # Most arrays have no zeros or denormals: one ufunc decides that.
+  if not small.any() or not (small & (w != 0)).any():
     return a
   return np.where(small, np.copysign(np.zeros((), w.dtype), w).astype(a.dtype), a)
 

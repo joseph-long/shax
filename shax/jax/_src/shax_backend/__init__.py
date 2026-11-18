@@ -76,9 +76,9 @@ def _load() -> None:
 
 def to_numpy(x) -> Any:
   """Host value of a concrete JAX value (ArrayImpl, TypedNdArray, scalar)."""
-  from shax.jax._src import core  # noqa: PLC0415
-  if isinstance(x, np.ndarray) and type(x) is np.ndarray:
+  if type(x) is np.ndarray:  # before the import: this is the hot path
     return x
+  from shax.jax._src import core  # noqa: PLC0415
   val = getattr(x, "_value", None)
   if val is not None and not isinstance(x, core.Tracer):
     return val
