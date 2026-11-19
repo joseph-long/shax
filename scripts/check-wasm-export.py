@@ -10,6 +10,11 @@ any blocked requests and browser console errors. Exit status 0 only if the
 element appeared, code cells are visible (unless --allow-no-code; exports need
 `--show-code` for that) and nothing tried to reach the network.
 
+Outputs embedded with `--execute` are stripped from the served page (its
+`"session"` preview is replaced by null), so the selector can only appear once
+the browser has run the notebook itself. `--keep-preview` serves the page as
+is, to check what readers see on load.
+
 Needs `playwright` and a Chromium (`playwright install chromium`; set
 PLAYWRIGHT_BROWSERS_PATH if it lives elsewhere). See examples/optax-wasm.
 """
@@ -18,15 +23,53 @@ from __future__ import annotations
 import argparse
 import functools
 import http.server
+import json
+import os
 import sys
 import threading
 import time
 
 
-def serve(directory: str) -> tuple[http.server.ThreadingHTTPServer, str]:
+_SESSION = '"session": '
+
+
+def strip_preview(html: str) -> tuple[str, bool]:
+  """Replace the page's embedded `--execute` outputs ("session") with null."""
+  i = html.find(_SESSION)
+  if i < 0:
+    return html, False
+  start = i + len(_SESSION)
+  obj, end = json.JSONDecoder().raw_decode(html, start)
+  if obj is None:
+    return html, False
+  return html[:start] + "null" + html[end:], True
+
+
+def serve(directory: str, keep_preview: bool,
+          stripped: list[str]) -> tuple[http.server.ThreadingHTTPServer, str]:
   class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
       pass
+
+    def do_GET(self):
+      path = self.translate_path(self.path)
+      if os.path.isdir(path):  # "/" serves index.html
+        path = os.path.join(path, "index.html")
+      if keep_preview or not path.endswith(".html"):
+        return super().do_GET()
+      try:
+        with open(path, encoding="utf-8") as f:
+          html, changed = strip_preview(f.read())
+      except OSError:
+        return super().do_GET()
+      if changed:
+        stripped.append(self.path)
+      body = html.encode()
+      self.send_response(200)
+      self.send_header("Content-Type", "text/html; charset=utf-8")
+      self.send_header("Content-Length", str(len(body)))
+      self.end_headers()
+      self.wfile.write(body)
 
   handler = functools.partial(Handler, directory=directory)
   httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -43,11 +86,14 @@ def main() -> int:
   ap.add_argument("--screenshot", help="save a full-page PNG here when done")
   ap.add_argument("--allow-no-code", action="store_true",
                   help="don't fail when no code cells are visible")
+  ap.add_argument("--keep-preview", action="store_true",
+                  help="serve outputs embedded by --execute instead of stripping them")
   a = ap.parse_args()
 
   from playwright.sync_api import sync_playwright  # noqa: PLC0415
 
-  httpd, url = serve(a.export_dir)
+  stripped: list[str] = []
+  httpd, url = serve(a.export_dir, a.keep_preview, stripped)
   blocked: list[str] = []
   console_errors: list[str] = []
   t0 = time.monotonic()
@@ -86,6 +132,8 @@ def main() -> int:
   httpd.shutdown()
 
   print(f"elapsed: {time.monotonic() - t0:.1f}s")
+  for u in sorted(set(stripped)):
+    print(f"stripped embedded outputs from {u} (the browser computed these)")
   if found is not None:
     print(f"found {a.selector}: {found}")
     print(f"visible code cells: {n_code}")

@@ -36,8 +36,11 @@ Test results (all with 0 regressions against their baselines):
 Goalpost met: `examples/optax-wasm` (jit + value_and_grad + optax.adam)
 exported with `marimo export html-wasm --mode run --show-code --offline`
 runs in headless Chromium with the network blocked, loss 0.009453 (same as
-native), ~12 s to render, ~56 MB. Code cells are shown: `examples/optax-wasm/export.sh`
-bakes in `--show-code`, and `check-wasm-export.py` fails if no code cells are visible.
+native), ~12 s to render, ~56 MB. `examples/optax-wasm/export.sh` adds
+`--execute` by default (outputs computed at export time show in ~1 s;
+widgets still re-run cells in the browser). `check-wasm-export.py` strips
+those embedded outputs, so it still proves shax ran in the browser, and
+fails if no code cells are visible.
 
 Performance: optax step ~1.1 ms natively (`eval_jaxpr_compiled` raw path
 skips per-eqn config contexts; dtype predicates memoized; `_ftz` returns
